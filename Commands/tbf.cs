@@ -59,6 +59,8 @@ namespace TeklaResultsInterrogator.Commands
 
             var uDAs = Model.UserDefinedAttributesManager.GetAttributeDefinitionsByNamesAsync().Result;
 
+
+            // Filter is hard coded here. Need to write something to select the UDA and Filter value;
             string filter = "Filter";
             string filterValue = "Rafter";
 
@@ -120,6 +122,7 @@ namespace TeklaResultsInterrogator.Commands
                     foreach (IMemberSpan span in spans)
                     {
 
+                        // Do a filtering by UDAs first to see if we should results from the span
                         var uda = span.GetUserDefinedAttributesAsync(new[] { udaFilter }).Result.Where(c => c is IUserDefinedTextAttribute);
                         int udaCount = uda.Count();
 
@@ -132,6 +135,7 @@ namespace TeklaResultsInterrogator.Commands
                         }
                         else 
                         { 
+                            // this needs logic so that if there is no filter we just get every thing
                             continue; 
                         }
 
