@@ -175,15 +175,15 @@ namespace TeklaResultsInterrogator.Core
 
             if (solvedCases.Count > 0)
             {
-                loadingOptions.Add("Loadcases", solvedCases.Cast<ILoadingCase>().ToList());
+                loadingOptions.Add("cases", solvedCases.Cast<ILoadingCase>().ToList());
             }
             if (solvedCombinations.Count > 0)
             {
-                loadingOptions.Add("Combinations", solvedCombinations.Cast<ILoadingCase>().ToList());
+                loadingOptions.Add("combos", solvedCombinations.Cast<ILoadingCase>().ToList());
             }
             if (solvedEnvelopes.Count > 0)
             {
-                loadingOptions.Add("Envelopes", solvedEnvelopes.Cast<ILoadingCase>().ToList());
+                loadingOptions.Add("envelopes", solvedEnvelopes.Cast<ILoadingCase>().ToList());
             }
 
             List<ILoadingCase>? loadingCases = null;

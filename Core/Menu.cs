@@ -109,8 +109,8 @@ namespace TeklaResultsInterrogator.Core
                     case "FootfallAnalysis":
                         baseInterrogator = new FootfallAnalysis();
                         break;
-                    case "TimberBeamForces":
-                        baseInterrogator = new TimberBeamForces();
+                    case "tbf":
+                        baseInterrogator = new tbf();
                         break;
                     case "TimberColumnForces":
                         baseInterrogator = new TimberColumnForces();

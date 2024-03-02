@@ -12,12 +12,13 @@ using TSD.API.Remoting.Loading;
 using TSD.API.Remoting.Solver;
 using TSD.API.Remoting.Structure;
 using TSD.API.Remoting.Sections;
+using TSD.API.Remoting.UserDefinedAttributes;
 
 namespace TeklaResultsInterrogator.Commands
 {
-    internal class TimberBeamForces : ForceInterrogator
+    internal class tbf : ForceInterrogator
     {
-        public TimberBeamForces()
+        public tbf()
         {
             HasOutput = true;
             RequestedMemberType = new List<MemberConstruction>() { MemberConstruction.TimberBeam };
@@ -56,6 +57,22 @@ namespace TeklaResultsInterrogator.Commands
 
             List<IMember> timberBeams = AllMembers.Where(c => RequestedMemberType.Contains(c.Data.Value.Construction.Value)).ToList();
 
+            var uDAs = Model.UserDefinedAttributesManager.GetAttributeDefinitionsByNamesAsync().Result;
+
+            string filter = "Filter";
+            string filterValue = "Rafter";
+
+            IAttributeDefinition udaFilter = null;
+
+            foreach (var uDa in uDAs) 
+            {
+                if (uDa.Name == filter) 
+                {
+                    udaFilter = uDa;
+                };
+
+            }
+
             Console.WriteLine($"{AllMembers.Count} structural members found in model.");
             Console.WriteLine($"{timberBeams.Count} timber beams found.");
 
@@ -86,7 +103,6 @@ namespace TeklaResultsInterrogator.Commands
                     string name = member.Name;
                     Guid id = member.Id;
                     IEnumerable<IMemberSpan> spans = member.GetSpanAsync().Result;
-
                     int constructionPointIndex = member.MemberNodes.Value.First().Value.ConstructionPointIndex.Value;
                     IEnumerable<IConstructionPoint> constructionPoints = Model.GetConstructionPointsAsync(new List<int>() { constructionPointIndex }).Result;
                     int planeId = constructionPoints.First().PlaneInfo.Value.Index;
@@ -103,6 +119,23 @@ namespace TeklaResultsInterrogator.Commands
 
                     foreach (IMemberSpan span in spans)
                     {
+
+                        var uda = span.GetUserDefinedAttributesAsync(new[] { udaFilter }).Result.Where(c => c is IUserDefinedTextAttribute);
+                        int udaCount = uda.Count();
+
+                        string udaValue = "";
+
+                        if (udaCount != 0) 
+                        {
+                            udaValue = ((IUserDefinedTextAttribute)uda.First()).Text;
+                            if (udaValue != filterValue) { continue; }
+                        }
+                        else 
+                        { 
+                            continue; 
+                        }
+
+
                         string spanName = span.Name;
                         int spanIdx = span.Index;
                         double length = span.Length.Value;
