@@ -103,8 +103,8 @@ namespace TeklaResultsInterrogator.Core
                 BaseInterrogator? baseInterrogator = null;
                 switch (commandName)
                 {
-                    case "SteelBeamForces":
-                        baseInterrogator = new SteelBeamForces();
+                    case "sbf":
+                        baseInterrogator = new sbf();
                         break;
                     case "FootfallAnalysis":
                         baseInterrogator = new FootfallAnalysis();
@@ -112,8 +112,8 @@ namespace TeklaResultsInterrogator.Core
                     case "tbf":
                         baseInterrogator = new tbf();
                         break;
-                    case "TimberColumnForces":
-                        baseInterrogator = new TimberColumnForces();
+                    case "tcf":
+                        baseInterrogator = new tcf();
                         break;
                     default:
                         break;

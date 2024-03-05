@@ -59,10 +59,9 @@ namespace TeklaResultsInterrogator.Commands
 
             var uDAs = Model.UserDefinedAttributesManager.GetAttributeDefinitionsByNamesAsync().Result;
 
-
             // Filter is hard coded here. Need to write something to select the UDA and Filter value;
             string filter = "Filter";
-            string filterValue = "Rafter";
+            string filterValue = "Notch Beams";
 
             IAttributeDefinition udaFilter = null;
 

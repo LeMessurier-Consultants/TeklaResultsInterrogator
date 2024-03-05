@@ -12,10 +12,11 @@ using TSD.API.Remoting.Loading;
 using TSD.API.Remoting.Solver;
 using TSD.API.Remoting.Structure;
 using TSD.API.Remoting.Sections;
+using TSD.API.Remoting.UserDefinedAttributes;
 
 namespace TeklaResultsInterrogator.Commands
 {
-    public class SteelBeamForces : ForceInterrogator
+    public class sbf : ForceInterrogator
     {
         private LoadingValueOptions ShearMajorValueOption;
         private LoadingValueOptions ShearMinorValueOption;
@@ -28,7 +29,7 @@ namespace TeklaResultsInterrogator.Commands
         private LoadingValueOptions DisplacementMajorValueOption;
         private LoadingValueOptions DisplacementMinorValueOption;
         private List<LoadingValueOptions> AllLoadingValueOptions;
-        public SteelBeamForces()
+        public sbf()
         {
             HasOutput = true;
             RequestedMemberType = new List<MemberConstruction>() { MemberConstruction.SteelBeam, MemberConstruction.CompositeBeam };
@@ -93,6 +94,24 @@ namespace TeklaResultsInterrogator.Commands
 
             List<IMember> steelBeams = AllMembers.Where(c => RequestedMemberType.Contains(c.Data.Value.Construction.Value)).ToList();
 
+
+            var uDAs = Model.UserDefinedAttributesManager.GetAttributeDefinitionsByNamesAsync().Result;
+
+            // Filter is hard coded here. Need to write something to select the UDA and Filter value;
+            string filter = "Filter";
+            string filterValue = "My Beams";
+
+            IAttributeDefinition udaFilter = null;
+
+            foreach (var uDa in uDAs)
+            {
+                if (uDa.Name == filter)
+                {
+                    udaFilter = uDa;
+                };
+
+            }
+
             Console.WriteLine($"{AllMembers.Count} structural members found in model.");
             Console.WriteLine($"{steelBeams.Count} steel beams found.");
 
@@ -125,6 +144,8 @@ namespace TeklaResultsInterrogator.Commands
             {
                 foreach (IMember member in steelBeams)
                 {
+                    
+                    
                     string name = member.Name;
                     Guid id = member.Id;
                     IEnumerable<IMemberSpan> spans = member.GetSpanAsync().Result;
@@ -147,6 +168,24 @@ namespace TeklaResultsInterrogator.Commands
 
                     foreach (IMemberSpan span in spans)
                     {
+
+                        // Do a filtering by UDAs first to see if we should results from the span
+                        var uda = span.GetUserDefinedAttributesAsync(new[] { udaFilter }).Result.Where(c => c is IUserDefinedTextAttribute);
+                        int udaCount = uda.Count();
+
+                        string udaValue = "";
+
+                        if (udaCount != 0)
+                        {
+                            udaValue = ((IUserDefinedTextAttribute)uda.First()).Text;
+                            if (udaValue != filterValue) { continue; }
+                        }
+                        else
+                        {
+                            // this needs logic so that if there is no filter we just get every thing
+                            continue;
+                        }
+
                         string spanName = span.Name;
                         int spanIdx = span.Index;
                         double length = span.Length.Value;

@@ -15,9 +15,9 @@ using TSD.API.Remoting.Sections;
 
 namespace TeklaResultsInterrogator.Commands
 {
-    internal class TimberColumnForces : ForceInterrogator
+    internal class tcf : ForceInterrogator
     {
-        public TimberColumnForces()
+        public tcf()
         {
             HasOutput = true;
             RequestedMemberType = new List<MemberConstruction>() { MemberConstruction.TimberColumn };
