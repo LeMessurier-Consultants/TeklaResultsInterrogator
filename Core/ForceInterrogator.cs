@@ -256,5 +256,24 @@ namespace TeklaResultsInterrogator.Core
             } while (reduced == null);
             return (bool)reduced;
         }
+
+        public string AskUDAFilter()
+        {       
+                string? filterValue = null;
+
+                string? readIn = AskUser("Enter the UDA Filter string: ");
+                
+                if (readIn != "")
+                {
+                    filterValue = readIn;
+                }
+                else if (readIn == "")
+                {
+                    filterValue = null;
+                }
+               
+            return (string)filterValue;
+        }
+
     }
 }

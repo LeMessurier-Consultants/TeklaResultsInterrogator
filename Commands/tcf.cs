@@ -12,6 +12,7 @@ using TSD.API.Remoting.Loading;
 using TSD.API.Remoting.Solver;
 using TSD.API.Remoting.Structure;
 using TSD.API.Remoting.Sections;
+using TSD.API.Remoting.UserDefinedAttributes;
 
 namespace TeklaResultsInterrogator.Commands
 {
@@ -55,6 +56,23 @@ namespace TeklaResultsInterrogator.Commands
             Console.WriteLine("Unpacking member data...");
 
             List<IMember> timberColumns = AllMembers.Where(c => RequestedMemberType.Contains(c.Data.Value.Construction.Value)).ToList();
+
+            var uDAs = Model.UserDefinedAttributesManager.GetAttributeDefinitionsByNamesAsync().Result;
+
+            // Filter is hard coded here. Need to write something to select the UDA and Filter value;
+            string filter = "Filter";
+            string filterValue = AskUDAFilter();
+
+            IAttributeDefinition udaFilter = null;
+
+            foreach (var uDa in uDAs)
+            {
+                if (uDa.Name == filter)
+                {
+                    udaFilter = uDa;
+                };
+
+            }
 
             Console.WriteLine($"{AllMembers.Count} structural members found in model.");
             Console.WriteLine($"{timberColumns.Count} timber columns found.");
@@ -155,6 +173,25 @@ namespace TeklaResultsInterrogator.Commands
 
                             foreach (IMemberSpan span in lift.Values)
                             {
+
+                                // Do a filtering by UDAs first to see if we should results from the span
+                                var uda = span.GetUserDefinedAttributesAsync(new[] { udaFilter }).Result.Where(c => c is IUserDefinedTextAttribute);
+                                int udaCount = uda.Count();
+
+                                string udaValue = "";
+
+                                if (udaCount != 0)
+                                {
+                                    udaValue = ((IUserDefinedTextAttribute)uda.First()).Text;
+                                    if (udaValue != filterValue) { continue; }
+                                }
+                                else
+                                {
+                                    // this needs logic so that if there is no filter we just get every thing
+                                    continue;
+                                }
+
+
                                 SpanResults spanResults = new SpanResults(span, 1, loadingCase, reduced, AnalysisType, member);
                                 MaxSpanInfo maxSpanInfo = spanResults.GetMaxima();
                                 maxLiftInfo.EnvelopeAndUpdate(maxSpanInfo);

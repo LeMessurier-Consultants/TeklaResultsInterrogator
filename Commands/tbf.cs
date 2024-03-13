@@ -59,9 +59,9 @@ namespace TeklaResultsInterrogator.Commands
 
             var uDAs = Model.UserDefinedAttributesManager.GetAttributeDefinitionsByNamesAsync().Result;
 
-            // Filter is hard coded here. Need to write something to select the UDA and Filter value;
+            // Filter is hard coded here. Having a string UDA filter should be part of the template file.
             string filter = "Filter";
-            string filterValue = "Notch Beams";
+            string filterValue = AskUDAFilter();
 
             IAttributeDefinition udaFilter = null;
 
@@ -87,7 +87,7 @@ namespace TeklaResultsInterrogator.Commands
             double start1 = timeUnpack;
             string file1 = SaveDirectory + @"TimberBeamForces_" + FileName + ".csv";
             string header1 = String.Format("{0},{1},{2},{3},{4},{5},{6},{7},{8},{9},{10},{11},{12},{13},{14},{15},{16},{17},{18},{19},{20},{21}\n",
-                "Tekla GUID", "Member Name", "Level", "Section", "Breadth [in]", "Depth [in]", "Span Name",
+                "Tekla GUID", "Member Name", "Filter UDA Name", "Level", "Section", "Breadth [in]", "Depth [in]", "Span Name",
                 "Start Node", "Start Node Fixity", "End Node", "End Node Fixity",
                 "Span Length [ft]", "Span Rotation [deg]", "Loading Name",
                 "Shear Major [k]", "Shear Minor [k]", "Moment Major [k-ft]", "Moment Minor [k-ft]",
@@ -165,8 +165,8 @@ namespace TeklaResultsInterrogator.Commands
                         }
                         endNodeFixity = endNodeFixity.Replace(',', '|');
 
-                        string spanLineOnly = String.Format("{0},{1},{2},{3},{4},{5},{6},{7},{8},{9},{10},{11},{12}",
-                            id, name, levelName, sectionName, breadth, depth, spanName,
+                        string spanLineOnly = String.Format("{0},{1},{2},{3},{4},{5},{6},{7},{8},{9},{10},{11},{12},{13}",
+                            id, name, filterValue, levelName, sectionName, breadth, depth, spanName,
                             startNodeIdx, startNodeFixity, endNodeIdx, endNodeFixity, lengthFt, rot);
 
                         Console.WriteLine(spanName);
