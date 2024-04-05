@@ -12,37 +12,29 @@ using TSD.API.Remoting.Loading;
 using TSD.API.Remoting.Solver;
 using TSD.API.Remoting.Structure;
 using TSD.API.Remoting.Sections;
+using TeklaResultsInterrogator.Utils;
+using static TeklaResultsInterrogator.Utils.Utils;
 
 namespace TeklaResultsInterrogator.Commands
 {
     public class SteelBeamForces : ForceInterrogator
     {
-        private LoadingValueOptions ShearMajorValueOption;
-        private LoadingValueOptions ShearMinorValueOption;
-        private LoadingValueOptions MomentMajorValueOption;
-        private LoadingValueOptions MomentMinorValueOption;
-        private LoadingValueOptions AxialValueOption;
-        private LoadingValueOptions TorsionValueOption;
-        private LoadingValueOptions DeflectionMajorValueOption;
-        private LoadingValueOptions DeflectionMinorValueOption;
-        private LoadingValueOptions DisplacementMajorValueOption;
-        private LoadingValueOptions DisplacementMinorValueOption;
-        private List<LoadingValueOptions> AllLoadingValueOptions;
         public SteelBeamForces()
         {
             HasOutput = true;
-            RequestedMemberType = new List<MemberConstruction>() { MemberConstruction.SteelBeam, MemberConstruction.CompositeBeam };
+            RequestedMemberType = new List<MemberConstruction>() { MemberConstruction.SteelBeam, MemberConstruction.CompositeBeam};
+            
         }
 
-        public override Task Execute()
+        public override async Task ExecuteAsync()
         {
             // Initialize parents
-            Initialize();
+            await InitializeAsync();
 
             // Check for null properties
             if (Flag)
             {
-                return Task.CompletedTask;
+                return;
             }
 
             // Data setup and diagnostics initialization
@@ -61,37 +53,11 @@ namespace TeklaResultsInterrogator.Commands
             bool reduced = AskReduced();
             stopwatch.Start();
 
-            // Set Loading Options
-            ShearMajorValueOption = LoadingValueOptions.StaticValue(LoadingValueType.Force, LoadingDirection.Major, reduced);
-            ShearMinorValueOption = LoadingValueOptions.StaticValue(LoadingValueType.Force, LoadingDirection.Minor, reduced);
-            MomentMajorValueOption = LoadingValueOptions.StaticValue(LoadingValueType.Moment, LoadingDirection.Major, reduced);
-            MomentMinorValueOption = LoadingValueOptions.StaticValue(LoadingValueType.Moment, LoadingDirection.Minor, reduced);
-            AxialValueOption = LoadingValueOptions.StaticValue(LoadingValueType.Force, LoadingDirection.Axial, reduced);
-            TorsionValueOption = LoadingValueOptions.StaticValue(LoadingValueType.Moment, LoadingDirection.Axial, reduced);
-            DeflectionMajorValueOption = LoadingValueOptions.StaticValue(LoadingValueType.Deflection, LoadingDirection.Major, reduced);
-            DeflectionMinorValueOption = LoadingValueOptions.StaticValue(LoadingValueType.Deflection, LoadingDirection.Minor, reduced);
-            DisplacementMajorValueOption = LoadingValueOptions.StaticValue(LoadingValueType.Displacement, LoadingDirection.Major, reduced);
-            DisplacementMinorValueOption = LoadingValueOptions.StaticValue(LoadingValueType.Displacement, LoadingDirection.Minor, reduced);
-
-            AllLoadingValueOptions = new List<LoadingValueOptions>
-            {
-                ShearMajorValueOption,
-                ShearMinorValueOption,
-                MomentMajorValueOption,
-                MomentMinorValueOption,
-                AxialValueOption,
-                TorsionValueOption,
-                DeflectionMajorValueOption,
-                DeflectionMinorValueOption,
-                DisplacementMajorValueOption,
-                DisplacementMinorValueOption
-            };
-
             // Unpacking member data
             FancyWriteLine("\nMember summary:", TextColor.Title);
             Console.WriteLine("Unpacking member data...");
-
-            List<IMember> steelBeams = AllMembers.Where(c => RequestedMemberType.Contains(c.Data.Value.Construction.Value)).ToList();
+            
+            List<IMember> steelBeams = AllMembers.Where(c => RequestedMemberType.Contains(GetProperty(c.Data.Value.Construction))).ToList();
 
             Console.WriteLine($"{AllMembers.Count} structural members found in model.");
             Console.WriteLine($"{steelBeams.Count} steel beams found.");
@@ -119,6 +85,7 @@ namespace TeklaResultsInterrogator.Commands
             File.WriteAllText(file1, "");
             File.AppendAllText(file1, header1);
 
+
             // Getting internal forces and writing table
             FancyWriteLine("\nWriting internal forces table...", TextColor.Title);
             using (StreamWriter sw1 = new StreamWriter(file1, true, Encoding.UTF8, bufferSize))
@@ -127,12 +94,12 @@ namespace TeklaResultsInterrogator.Commands
                 {
                     string name = member.Name;
                     Guid id = member.Id;
-                    IEnumerable<IMemberSpan> spans = member.GetSpanAsync().Result;
+                    IEnumerable<IMemberSpan> spans = await member.GetSpanAsync();
 
                     int constructionPointIndex = member.MemberNodes.Value.First().Value.ConstructionPointIndex.Value;
-                    IEnumerable<IConstructionPoint> constructionPoints = Model.GetConstructionPointsAsync(new List<int>() { constructionPointIndex }).Result;
+                    IEnumerable<IConstructionPoint> constructionPoints = await Model.GetConstructionPointsAsync(new List<int>() { constructionPointIndex });
                     int planeId = constructionPoints.First().PlaneInfo.Value.Index;
-                    IEnumerable<IHorizontalConstructionPlane> level = Model.GetLevelsAsync(new List<int>() { planeId }).Result;
+                    IEnumerable<IHorizontalConstructionPlane> level = await Model.GetLevelsAsync(new List<int>() { planeId });
                     string levelName;
                     if (level.Any())
                     {
@@ -158,14 +125,14 @@ namespace TeklaResultsInterrogator.Commands
 
                         int startNodeIdx = span.StartMemberNode.ConstructionPointIndex.Value;
                         string startNodeFixity = span.StartReleases.Value.DegreeOfFreedom.Value.ToString();
-                        if (span.StartReleases.Value.Cantilever.Value == true)
+                        if (GetProperty(span.StartReleases.Value.Cantilever) == true)
                         {
                             startNodeFixity += " (Cantilever end)";
                         }
                         startNodeFixity = startNodeFixity.Replace(',', '|');
                         int endNodeIdx = span.EndMemberNode.ConstructionPointIndex.Value;
                         string endNodeFixity = span.EndReleases.Value.DegreeOfFreedom.Value.ToString();
-                        if (span.EndReleases.Value.Cantilever.Value == true)
+                        if (GetProperty(span.EndReleases.Value.Cantilever) == true)
                         {
                             endNodeFixity += " (Cantilever end)";
                         }
@@ -186,13 +153,11 @@ namespace TeklaResultsInterrogator.Commands
                             {
                                 string loadName = loadingCase.Name.Replace(',', '`');
                                 SpanResults spanResults = new SpanResults(span, subdivisions, loadingCase, reduced, AnalysisType, member);
-                                IMemberLoading memberLoading = member.GetLoadingAsync(loadingCase.Id, AnalysisType, LoadingResultType.Base).Result;
+
                                 if (subdivisions >= 1)
                                 {
                                     // Getting maximum internal forces and displacements and locations
-                                    //MaxSpanInfo maxSpanInfo = spanResults.GetMaxima(); //11ms
-                                    MaxSpanInfo maxSpanInfo = SpanResults.GetMaxima2(memberLoading,AllLoadingValueOptions,span.Index);
-                                    
+                                    MaxSpanInfo maxSpanInfo = await spanResults.GetMaxima();
                                     string maxLine = spanLineOnly + "," + String.Format("{0},{1},{2},{3},{4},{5},{6},{7},{8},{9}",
                                         loadName, "MAXIMA",
                                         maxSpanInfo.ShearMajor.Value,
@@ -203,13 +168,13 @@ namespace TeklaResultsInterrogator.Commands
                                         maxSpanInfo.Torsion.Value,
                                         maxSpanInfo.DeflectionMajor.Value,
                                         maxSpanInfo.DeflectionMinor.Value);
-                                        sw1.WriteLine(maxLine);
+                                    sw1.WriteLine(maxLine);
                                 }
 
                                 if (subdivisions >= 2)
                                 {
                                     // Getting internal forces and displacements at each station
-                                    List<PointSpanInfo> pointSpanInfo = spanResults.GetStations(); //15ms
+                                    List<PointSpanInfo> pointSpanInfo = await spanResults.GetStations();
                                     foreach (PointSpanInfo info in pointSpanInfo)
                                     {
                                         string posLine = spanLineOnly + "," + String.Format("{0},{1},{2},{3},{4},{5},{6},{7},{8},{9}",
@@ -237,7 +202,7 @@ namespace TeklaResultsInterrogator.Commands
 
             Check();
 
-            return Task.CompletedTask;
+            return;
         }
     }
 }
