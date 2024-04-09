@@ -80,7 +80,7 @@ namespace TeklaResultsInterrogator.Core
             MaxSpanInfoData displacementMinor = await CalculateMaximum(memberLoading, DisplacementMinorValueOption);
 
             // Instantiate and return MaxSpanInfo object
-            return new MaxSpanInfo(shearMajor, shearMinor, momentMajor, momentMinor, axialForce, torsion, deflectionMajor, deflectionMinor, displacementMajor, displacementMinor);
+            return new MaxSpanInfo(Loading, shearMajor, shearMinor, momentMajor, momentMinor, axialForce, torsion, deflectionMajor, deflectionMinor, displacementMajor, displacementMinor);
         }
 
         private async Task<MaxSpanInfoData> CalculateMaximum(IMemberLoading loading, LoadingValueOptions option)
@@ -149,7 +149,7 @@ namespace TeklaResultsInterrogator.Core
                 double displacementMinor = await GetLoadingValues(memberLoading, DisplacementMinorValueOption, position);
 
                 double positionFt = position * 0.00328084; // Converting from [mm] to [ft]
-                PointSpanInfo stationInfo = new PointSpanInfo(positionFt, shearMajor, shearMinor, momentMajor, momentMinor, axialForce, torsion, deflectionMajor, deflectionMinor, displacementMajor, displacementMinor);
+                PointSpanInfo stationInfo = new PointSpanInfo(Loading, positionFt, shearMajor, shearMinor, momentMajor, momentMinor, axialForce, torsion, deflectionMajor, deflectionMinor, displacementMajor, displacementMinor);
 
                 stationData.Add(stationInfo);
             }

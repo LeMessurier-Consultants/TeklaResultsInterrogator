@@ -19,14 +19,14 @@ namespace TeklaResultsInterrogator.Core
         protected AnalysisType AnalysisType = AnalysisType.FirstOrderLinear;
 
         protected List<MemberConstruction> RequestedMemberType = new List<MemberConstruction>();
-        protected TSD.API.Remoting.Solver.IModel? SolverModel { get; set; }
-        protected List<ILoadcase>? AllLoadcases { get; set; }
-        protected List<ILoadcase>? SolvedCases { get; set; }
-        protected List<ICombination>? AllCombinations { get; set; }
-        protected List<ICombination>? SolvedCombinations { get; set; }
-        protected List<IEnvelope>? AllEnvelopes { get; set; }
-        protected List<IEnvelope>? SolvedEnvelopes { get; set; }
-        protected List<IMember>? AllMembers { get; set; }
+        protected TSD.API.Remoting.Solver.IModel? SolverModel { get; private set; }
+        protected List<ILoadcase>? AllLoadcases { get; private set; }
+        protected List<ILoadcase>? SolvedCases { get; private set; }
+        protected List<ICombination>? AllCombinations { get; private set; }
+        protected List<ICombination>? SolvedCombinations { get; private set; }
+        protected List<IEnvelope>? AllEnvelopes { get; private set; }
+        protected List<IEnvelope>? SolvedEnvelopes { get; private set; }
+        protected List<IMember>? AllMembers { get; private set; }
         public ForceInterrogator() { }
 
         public override async Task InitializeAsync()  // to get solver model and other stuff here
@@ -90,7 +90,7 @@ namespace TeklaResultsInterrogator.Core
             // Get members
             Console.WriteLine("Searching for members...");
             IEnumerable<IMember>? allMembers = await Model.GetMembersAsync(null);
-            if (!allMembers.Any() || allMembers == null)
+            if (allMembers == null || !allMembers.Any())
             {
                 FancyWriteLine("No members found!", TextColor.Error);
                 Flag = true;
@@ -182,15 +182,15 @@ namespace TeklaResultsInterrogator.Core
 
             if (solvedCases.Count > 0)
             {
-                loadingOptions.Add("Loadcases", solvedCases.Cast<ILoadingCase>().ToList());
+                loadingOptions.Add("LOADCASES", solvedCases.Cast<ILoadingCase>().ToList());
             }
             if (solvedCombinations.Count > 0)
             {
-                loadingOptions.Add("Combinations", solvedCombinations.Cast<ILoadingCase>().ToList());
+                loadingOptions.Add("COMBINATIONS", solvedCombinations.Cast<ILoadingCase>().ToList());
             }
             if (solvedEnvelopes.Count > 0)
             {
-                loadingOptions.Add("Envelopes", solvedEnvelopes.Cast<ILoadingCase>().ToList());
+                loadingOptions.Add("ENVELOPES", solvedEnvelopes.Cast<ILoadingCase>().ToList());
             }
 
             List<ILoadingCase>? loadingCases = null;

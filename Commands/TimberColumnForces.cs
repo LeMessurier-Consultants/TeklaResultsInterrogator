@@ -43,9 +43,9 @@ namespace TeklaResultsInterrogator.Commands
             // Unpacking loading data
             FancyWriteLine("Loading Summary:", TextColor.Title);
             Console.WriteLine("Unpacking loading data...");
-            Console.WriteLine($"{AllLoadcases.Count} loadcases found, {SolvedCases.Count} solved.");
-            Console.WriteLine($"{AllCombinations.Count} load combinations found, {SolvedCombinations.Count} solved.");
-            Console.WriteLine($"{AllEnvelopes.Count} load envelopes found, {SolvedEnvelopes.Count} solved.\n");
+            Console.WriteLine($"{AllLoadcases!.Count} loadcases found, {SolvedCases!.Count} solved.");
+            Console.WriteLine($"{AllCombinations!.Count} load combinations found, {SolvedCombinations!.Count} solved.");
+            Console.WriteLine($"{AllEnvelopes!.Count} load envelopes found, {SolvedEnvelopes!.Count} solved.\n");
 
             stopwatch.Stop();
             List<ILoadingCase> loadingCases = AskLoading(SolvedCases, SolvedCombinations, SolvedEnvelopes);
@@ -56,12 +56,12 @@ namespace TeklaResultsInterrogator.Commands
             FancyWriteLine("\nMember summary:", TextColor.Title);
             Console.WriteLine("Unpacking member data...");
 
-            List<IMember> timberColumns = AllMembers.Where(c => RequestedMemberType.Contains(c.Data.Value.Construction.Value)).ToList();
+            List<IMember> timberColumns = AllMembers!.Where(c => RequestedMemberType.Contains(c.Data.Value.Construction.Value)).ToList();
 
-            Console.WriteLine($"{AllMembers.Count} structural members found in model.");
+            Console.WriteLine($"{AllMembers!.Count} structural members found in model.");
             Console.WriteLine($"{timberColumns.Count} timber columns found.");
 
-            List<IHorizontalConstructionPlane> levels = (await Model.GetLevelsAsync()).ToList();
+            List<IHorizontalConstructionPlane> levels = (await Model!.GetLevelsAsync()).ToList();
 
             double timeUnpack = Math.Round(stopwatch.Elapsed.TotalSeconds, 3);
             Console.WriteLine($"Loading and member data unpacked in {timeUnpack} seconds.\n");
@@ -152,8 +152,8 @@ namespace TeklaResultsInterrogator.Commands
 
                         foreach (ILoadingCase loadingCase in loadingCases)
                         {
-                            string loadName = loadingCase.Name.Replace(',', '`');
-                            MaxSpanInfo maxLiftInfo = new MaxSpanInfo();
+                            //string loadName = loadingCase.Name.Replace(',', '`');
+                            MaxSpanInfo maxLiftInfo = new MaxSpanInfo(loadingCase);
 
                             foreach (IMemberSpan span in lift.Values)
                             {
@@ -163,7 +163,7 @@ namespace TeklaResultsInterrogator.Commands
                             }
 
                             string maxLine = liftLineOnly + "," + String.Format("{0},{1},{2},{3},{4},{5},{6}",
-                                loadName,
+                                maxLiftInfo.LoadName,
                                 maxLiftInfo.ShearMajor.Value,
                                 maxLiftInfo.ShearMinor.Value,
                                 maxLiftInfo.MomentMajor.Value,

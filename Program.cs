@@ -64,7 +64,7 @@ namespace TeklaResultsInterrogator
         private static void HaltExit(bool success)
         {
             string name = Process.GetCurrentProcess().ProcessName;
-            string path = Environment.ProcessPath;
+            string? path = Environment.ProcessPath;
             int process = Process.GetCurrentProcess().Id;
             string status = (success == true) ? "successfully" : "unsuccessfully";
             Console.WriteLine($"\n{name} at {path} (process {process}) executed {status}.");

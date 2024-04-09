@@ -3,11 +3,13 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using TSD.API.Remoting.Loading;
 
 namespace TeklaResultsInterrogator.Core
 {
     public class PointSpanInfo
     {
+        public string LoadName { get; }
         public double Position { get; set; }
         public double ShearMajor { get; set; }
         public double ShearMinor { get; set; }
@@ -20,8 +22,9 @@ namespace TeklaResultsInterrogator.Core
         public double DisplacementMajor { get; set; }
         public double DisplacementMinor { get; set; }
 
-        public PointSpanInfo(double position, double shearMajor, double shearMinor, double momentMajor, double momentMinor, double axialForce, double torsion, double deflectionMajor, double deflectionMinor, double displacementMajor, double displacementMinor)
+        public PointSpanInfo(ILoadingCase loadingCase, double position, double shearMajor, double shearMinor, double momentMajor, double momentMinor, double axialForce, double torsion, double deflectionMajor, double deflectionMinor, double displacementMajor, double displacementMinor)
         {
+            LoadName = loadingCase.Name.Replace(',', '`');
             Position = position;
             ShearMajor = shearMajor;
             ShearMinor = shearMinor;
