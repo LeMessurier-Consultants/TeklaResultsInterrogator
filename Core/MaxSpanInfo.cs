@@ -3,11 +3,13 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using TSD.API.Remoting.Loading;
 
 namespace TeklaResultsInterrogator.Core
 {
     public class MaxSpanInfo
     {
+        public string LoadName { get;}
         public MaxSpanInfoData ShearMajor { get; set; }
         public MaxSpanInfoData ShearMinor { get; set; }
         public MaxSpanInfoData MomentMajor { get; set; }
@@ -19,8 +21,9 @@ namespace TeklaResultsInterrogator.Core
         public MaxSpanInfoData DisplacementMajor { get; set; }
         public MaxSpanInfoData DisplacementMinor { get; set; }
 
-        public MaxSpanInfo(MaxSpanInfoData shearMajor, MaxSpanInfoData shearMinor, MaxSpanInfoData momentMajor, MaxSpanInfoData momentMinor, MaxSpanInfoData axialForce, MaxSpanInfoData torsion, MaxSpanInfoData deflectionMajor, MaxSpanInfoData deflectionMinor, MaxSpanInfoData displacementMajor, MaxSpanInfoData displacementMinor)
+        public MaxSpanInfo(ILoadingCase loadingCase, MaxSpanInfoData shearMajor, MaxSpanInfoData shearMinor, MaxSpanInfoData momentMajor, MaxSpanInfoData momentMinor, MaxSpanInfoData axialForce, MaxSpanInfoData torsion, MaxSpanInfoData deflectionMajor, MaxSpanInfoData deflectionMinor, MaxSpanInfoData displacementMajor, MaxSpanInfoData displacementMinor)
         {
+            LoadName = loadingCase.Name.Replace(',', '`');
             ShearMajor = shearMajor;
             ShearMinor = shearMinor;
             MomentMajor = momentMajor;
@@ -33,8 +36,9 @@ namespace TeklaResultsInterrogator.Core
             DisplacementMinor = displacementMinor;
         }
 
-        public MaxSpanInfo()
+        public MaxSpanInfo(ILoadingCase loadingCase)
         {
+            LoadName = loadingCase.Name.Replace(',', '`');
             ShearMajor = new MaxSpanInfoData();
             ShearMinor = new MaxSpanInfoData();
             MomentMajor = new MaxSpanInfoData();

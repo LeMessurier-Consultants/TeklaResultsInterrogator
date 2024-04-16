@@ -14,7 +14,14 @@ namespace TeklaResultsInterrogator.Utils
             Console.ForegroundColor = (ConsoleColor)TextColor.Command;
             string? readIn = Console.ReadLine();
             Console.ForegroundColor = (ConsoleColor)TextColor.Text;
-            return readIn;
+            if (readIn == null || readIn.Length == 0)
+            {
+                return readIn;
+            }
+            else
+            {
+                return readIn.ToUpper();
+            }
         }
     }
 }
