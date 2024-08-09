@@ -125,7 +125,7 @@ namespace TeklaResultsInterrogator.Commands
                         startNodeFixity = startNodeFixity.Replace(',', '|');
                         int endNodeIdx = span.EndMemberNode.ConstructionPointIndex.Value;
                         string endNodeFixity = span.EndReleases.Value.DegreeOfFreedom.Value.ToString();
-                        if (span.EndReleases.Value.Cantilever.Value == true)
+                        if (GetProperty(span.EndReleases.Value.Cantilever) == true)
                         {
                             endNodeFixity += " (Cantilever end)";
                         }
@@ -134,8 +134,6 @@ namespace TeklaResultsInterrogator.Commands
                         string spanLineOnly = String.Format("{0},{1},{2},{3},{4},{5},{6},{7},{8},{9},{10},{11},{12}",
                             id, name, levelName, sectionName, breadth, depth, spanName,
                             startNodeIdx, startNodeFixity, endNodeIdx, endNodeFixity, lengthFt, rot);
-
-                        Console.WriteLine(spanName);
 
                         foreach (ILoadingCase loadingCase in loadingCases)
                         {
