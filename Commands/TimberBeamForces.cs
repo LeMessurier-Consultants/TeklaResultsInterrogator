@@ -117,14 +117,14 @@ namespace TeklaResultsInterrogator.Commands
                         double depth = Math.Round(section.Depth * 0.0393701, 4);  // Converting from [mm] to [in]
 
                         int startNodeIdx = span.StartMemberNode.ConstructionPointIndex.Value;
-                        string startNodeFixity = span.StartReleases.Value.DegreeOfFreedom.Value.ToString();
-                        if (span.StartReleases.Value.Cantilever.Value == true)
+                        string startNodeFixity = GetProperty(span.StartReleases.Value.DegreeOfFreedom).ToString();
+                        if (GetProperty(span.StartReleases.Value.Cantilever) == true)
                         {
                             startNodeFixity += " (Cantilever end)";
                         }
                         startNodeFixity = startNodeFixity.Replace(',', '|');
                         int endNodeIdx = span.EndMemberNode.ConstructionPointIndex.Value;
-                        string endNodeFixity = span.EndReleases.Value.DegreeOfFreedom.Value.ToString();
+                        string endNodeFixity = GetProperty(span.EndReleases.Value.DegreeOfFreedom).ToString();
                         if (GetProperty(span.EndReleases.Value.Cantilever) == true)
                         {
                             endNodeFixity += " (Cantilever end)";
