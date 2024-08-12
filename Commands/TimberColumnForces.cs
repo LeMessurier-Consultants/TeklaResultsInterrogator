@@ -56,7 +56,7 @@ namespace TeklaResultsInterrogator.Commands
             FancyWriteLine("\nMember summary:", TextColor.Title);
             Console.WriteLine("Unpacking member data...");
 
-            List<IMember> timberColumns = AllMembers!.Where(c => RequestedMemberType.Contains(c.Data.Value.Construction.Value)).ToList();
+            List<IMember> timberColumns = AllMembers!.Where(c => RequestedMemberType.Contains(GetProperty(c.Data.Value.Construction))).ToList();
 
             Console.WriteLine($"{AllMembers!.Count} structural members found in model.");
             Console.WriteLine($"{timberColumns.Count} timber columns found.");
