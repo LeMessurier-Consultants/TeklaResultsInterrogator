@@ -14,12 +14,13 @@ using TSD.API.Remoting.Structure;
 using TSD.API.Remoting.Sections;
 using TeklaResultsInterrogator.Utils;
 using static TeklaResultsInterrogator.Utils.Utils;
+using TSD.API.Remoting.UserDefinedAttributes;
 
 namespace TeklaResultsInterrogator.Commands
 {
-    internal class tbf : ForceInterrogator
+    internal class TimberBeamForces : ForceInterrogator
     {
-        public tbf()
+        public TimberBeamForces()
         {
             HasOutput = true;
             RequestedMemberType = new List<MemberConstruction>() { MemberConstruction.TimberBeam };
@@ -62,7 +63,7 @@ namespace TeklaResultsInterrogator.Commands
 
             // Filter is hard coded here. Having a string UDA filter should be part of the template file.
             string filter = "Filter";
-            string filterValue = AskUDAFilter();
+            string filterValue = "Low Slope Rafter";
 
             IAttributeDefinition udaFilter = null;
 
@@ -72,7 +73,7 @@ namespace TeklaResultsInterrogator.Commands
                 {
                     udaFilter = uDa;
                 };
-
+            
             }
 
             Console.WriteLine($"{AllMembers.Count} structural members found in model.");

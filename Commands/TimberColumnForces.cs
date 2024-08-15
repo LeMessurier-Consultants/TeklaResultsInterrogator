@@ -12,12 +12,15 @@ using TSD.API.Remoting.Loading;
 using TSD.API.Remoting.Solver;
 using TSD.API.Remoting.Structure;
 using TSD.API.Remoting.Sections;
+using TeklaResultsInterrogator.Utils;
+using static TeklaResultsInterrogator.Utils.Utils;
+using TSD.API.Remoting.UserDefinedAttributes;
 
 namespace TeklaResultsInterrogator.Commands
 {
-    internal class tcf : ForceInterrogator
+    internal class TimberColumnForces : ForceInterrogator
     {
-        public tcf()
+        public TimberColumnForces()
         {
             HasOutput = true;
             RequestedMemberType = new List<MemberConstruction>() { MemberConstruction.TimberColumn };
@@ -70,7 +73,7 @@ namespace TeklaResultsInterrogator.Commands
                 {
                     udaFilter = uDa;
                 };
-
+            
             }
 
             Console.WriteLine($"{AllMembers.Count} structural members found in model.");

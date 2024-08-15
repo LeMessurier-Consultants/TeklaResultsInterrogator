@@ -20,7 +20,7 @@ using System.Reflection.PortableExecutable;
 
 namespace TeklaResultsInterrogator.Commands
 {
-    public class sbf : ForceInterrogator
+    public class SteelBeamForces : ForceInterrogator
     {
         public SteelBeamForces()
         {
