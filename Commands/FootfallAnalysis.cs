@@ -1,6 +1,8 @@
 ﻿using System.Diagnostics;
 using System.Text;
 using TeklaResultsInterrogator.Core;
+using TeklaResultsInterrogator.Utils;
+using static TeklaResultsInterrogator.Utils.Utils;
 using TSD.API.Remoting.Loading;
 using TSD.API.Remoting.Solver;
 
@@ -13,15 +15,15 @@ namespace TeklaResultsInterrogator.Commands
             HasOutput = true;
         }
 
-        public override Task Execute()
+        public override async Task ExecuteAsync()
         {
             // Initialize parents
-            Initialize();
+            await InitializeAsync();
 
             // Check for null properties
             if (Flag)
             {
-                return Task.CompletedTask;
+                return;
             }
 
             // Data setup and diagnostics
@@ -167,7 +169,7 @@ namespace TeklaResultsInterrogator.Commands
             stopwatch.Stop();
             ExecutionTime = stopwatch.Elapsed.TotalSeconds;
 
-            return Task.CompletedTask;
+            return;
         }
     }
 }

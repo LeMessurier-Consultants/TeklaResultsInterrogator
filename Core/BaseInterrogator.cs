@@ -2,6 +2,9 @@
 using TSD.API.Remoting.Document;
 using System.Diagnostics;
 using System.Reflection;
+using TSD.API.Remoting.Common.Properties;
+using TeklaResultsInterrogator.Utils;
+using static TeklaResultsInterrogator.Utils.Utils;
 
 namespace TeklaResultsInterrogator.Core
 {
@@ -26,13 +29,13 @@ namespace TeklaResultsInterrogator.Core
             HasOutput = false;
         }
 
-        public void InitializeBase()
+        public async Task InitializeBaseAsync()
         {
             MakeHeader();
             FancyWriteLine("Initialization:", TextColor.Title);
 
             // Get BaseInterrogator Properties
-            Application = ApplicationFactory.GetFirstRunningApplicationAsync().Result;
+            Application = await ApplicationFactory.GetFirstRunningApplicationAsync();
             if (Application == null)
             {
                 FancyWriteLine("No running instances of TSD found!", TextColor.Error);
@@ -40,11 +43,11 @@ namespace TeklaResultsInterrogator.Core
                 return;
             }
 
-            string version = Application.GetVersionStringAsync().Result;
-            string title = Application.GetApplicationTitleAsync().Result;
+            string version = await Application.GetVersionStringAsync();
+            string title = await Application.GetApplicationTitleAsync();
             title = title.Split(" (")[0];
 
-            Document = Application.GetDocumentAsync().Result;
+            Document = await Application.GetDocumentAsync();
             if (Document == null)
             {
                 FancyWriteLine("No active Document found!", TextColor.Error);
@@ -65,7 +68,7 @@ namespace TeklaResultsInterrogator.Core
             FileName = FileName.Replace(" ", "");
             DocumentDirectory = Document.Path[..DocumentPath.LastIndexOf('\\')];
 
-            Model = Document.GetModelAsync().Result;
+            Model = await Document.GetModelAsync();
             if (Model == null)
             {
                 FancyWriteLine("No Model found within Document!", TextColor.Error);
@@ -89,15 +92,16 @@ namespace TeklaResultsInterrogator.Core
             }
         }
 
-        public virtual void Initialize()  // For mid-level interrogator classes to override
+        public virtual async Task InitializeAsync()  // For mid-level interrogator classes to override
         {
             Stopwatch stopwatch = Stopwatch.StartNew();
-            InitializeBase();
+            await InitializeBaseAsync();
             stopwatch.Stop();
             InitializationTime = stopwatch.Elapsed.TotalSeconds;
+            return;
         }
 
-        public virtual Task Execute()  // For command classes to override
+        public virtual Task ExecuteAsync()  // For command classes to override
         {
             Stopwatch stopwatch = Stopwatch.StartNew();
             stopwatch.Stop();
@@ -135,42 +139,6 @@ namespace TeklaResultsInterrogator.Core
                 Console.ForegroundColor = (ConsoleColor)TextColor.Text;
                 Console.WriteLine(banner);
             }
-        }
-
-        public enum TextColor
-        {
-            Text = ConsoleColor.White,
-            Command = ConsoleColor.Green,
-            Title = ConsoleColor.DarkCyan,
-            Path = ConsoleColor.DarkYellow,
-            Error = ConsoleColor.DarkRed,
-            Warning = ConsoleColor.Yellow,
-        }
-
-        public static void FancyWriteLine(string beforeText, string fancyText, string afterText, TextColor fancyColor)
-        {
-            Console.ForegroundColor = (ConsoleColor)TextColor.Text;
-            Console.Write(beforeText);
-            Console.ForegroundColor = (ConsoleColor)fancyColor;
-            Console.Write(fancyText);
-            Console.ForegroundColor = (ConsoleColor)TextColor.Text;
-            Console.WriteLine(afterText);
-        }
-
-        public static void FancyWriteLine(string text, TextColor fancyColor)
-        {
-            Console.ForegroundColor = (ConsoleColor)fancyColor;
-            Console.WriteLine(text);
-            Console.ForegroundColor = (ConsoleColor)TextColor.Text;
-        }
-
-        public string? AskUser(string prompt)
-        {
-            Console.Write(prompt);
-            Console.ForegroundColor = (ConsoleColor)TextColor.Command;
-            string? readIn = Console.ReadLine();
-            Console.ForegroundColor = (ConsoleColor)TextColor.Text;
-            return readIn;
         }
     }
 }

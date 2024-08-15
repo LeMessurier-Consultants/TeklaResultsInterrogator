@@ -19,25 +19,28 @@ using TeklaResultsInterrogator.Core;
 using TeklaResultsInterrogator.Commands;
 using System.Reflection;
 using System.Diagnostics;
+using TeklaResultsInterrogator.Utils;
+using static TeklaResultsInterrogator.Utils.Utils;
+
 
 namespace TeklaResultsInterrogator
 {
     internal class Program
     {
-        public static Task Main()
+        public static async Task Main()
         {
             // Initialize Menu and get Command property on completion of Menu constructor
             Menu menu = new Menu();
             var command = menu.Command;
             if (command != null )
             {
-               command.Execute();  // Execute command
+               await command.ExecuteAsync();  // Execute command
             }
             else
             {
                 Console.WriteLine("Aborted.");
                 HaltExit(true);
-                return Task.CompletedTask;
+                return;
             }
             command.Check();
             // If command executed successfully, wrap it up and exit
@@ -45,16 +48,16 @@ namespace TeklaResultsInterrogator
             {
                 double time = Math.Round(command.InitializationTime + command.ExecutionTime, 3);
                 command.MakeHeader(true);
-                BaseInterrogator.FancyWriteLine("Command ", command.Name, $" executed successfully in {time} seconds.\nThe application will now terminate.", BaseInterrogator.TextColor.Command);
+                FancyWriteLine("Command ", command.Name, $" executed successfully in {time} seconds.\nThe application will now terminate.", TextColor.Command);
                 command.MakeHeader(true);
                 HaltExit(true);
-                return Task.CompletedTask;
+                return;
             }
             else
             {
-                BaseInterrogator.FancyWriteLine($"{command.Name} failed to execute completely. Task aborted.", BaseInterrogator.TextColor.Error);
+                FancyWriteLine($"{command.Name} failed to execute completely. Task aborted.", TextColor.Error);
                 HaltExit(false);
-                return Task.CompletedTask;
+                return;
             }
             
         }
@@ -62,7 +65,7 @@ namespace TeklaResultsInterrogator
         {
             string name = Process.GetCurrentProcess().ProcessName;
             string? path = Environment.ProcessPath;
-            int process = Environment.ProcessId;
+            int process = Process.GetCurrentProcess().Id;
             string status = (success == true) ? "successfully" : "unsuccessfully";
             Console.WriteLine($"\n{name} at {path} (process {process}) executed {status}.");
             Console.WriteLine("The application will now terminate.\nPress any key to close this window . . .");

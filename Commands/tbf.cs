@@ -12,7 +12,8 @@ using TSD.API.Remoting.Loading;
 using TSD.API.Remoting.Solver;
 using TSD.API.Remoting.Structure;
 using TSD.API.Remoting.Sections;
-using TSD.API.Remoting.UserDefinedAttributes;
+using TeklaResultsInterrogator.Utils;
+using static TeklaResultsInterrogator.Utils.Utils;
 
 namespace TeklaResultsInterrogator.Commands
 {
@@ -24,15 +25,15 @@ namespace TeklaResultsInterrogator.Commands
             RequestedMemberType = new List<MemberConstruction>() { MemberConstruction.TimberBeam };
         }
 
-        public override Task Execute()
+        public override async Task ExecuteAsync()
         {
             // Initialize parents
-            Initialize();
+            await InitializeAsync();
 
             // Check for null properties
             if (Flag)
             {
-                return Task.CompletedTask;
+                return;
             }
 
             // Data setup and diagnostics initialization
@@ -55,7 +56,7 @@ namespace TeklaResultsInterrogator.Commands
             FancyWriteLine("\nMember summary:", TextColor.Title);
             Console.WriteLine("Unpacking member data...");
 
-            List<IMember> timberBeams = AllMembers.Where(c => RequestedMemberType.Contains(c.Data.Value.Construction.Value)).ToList();
+            List<IMember> timberBeams = AllMembers.Where(c => RequestedMemberType.Contains(GetProperty(c.Data.Value.Construction))).ToList();
 
             var uDAs = Model.UserDefinedAttributesManager.GetAttributeDefinitionsByNamesAsync().Result;
 
@@ -103,11 +104,12 @@ namespace TeklaResultsInterrogator.Commands
                 {
                     string name = member.Name;
                     Guid id = member.Id;
-                    IEnumerable<IMemberSpan> spans = member.GetSpanAsync().Result;
+                    IEnumerable<IMemberSpan> spans = await member.GetSpanAsync();
+
                     int constructionPointIndex = member.MemberNodes.Value.First().Value.ConstructionPointIndex.Value;
-                    IEnumerable<IConstructionPoint> constructionPoints = Model.GetConstructionPointsAsync(new List<int>() { constructionPointIndex }).Result;
+                    IEnumerable<IConstructionPoint> constructionPoints = await Model.GetConstructionPointsAsync(new List<int>() { constructionPointIndex });
                     int planeId = constructionPoints.First().PlaneInfo.Value.Index;
-                    IEnumerable<IHorizontalConstructionPlane> level = Model.GetLevelsAsync(new List<int>() { planeId }).Result;
+                    IEnumerable<IHorizontalConstructionPlane> level = await Model.GetLevelsAsync(new List<int>() { planeId });
                     string levelName;
                     if (level.Any())
                     {
@@ -151,15 +153,15 @@ namespace TeklaResultsInterrogator.Commands
                         double depth = Math.Round(section.Depth * 0.0393701, 4);  // Converting from [mm] to [in]
 
                         int startNodeIdx = span.StartMemberNode.ConstructionPointIndex.Value;
-                        string startNodeFixity = span.StartReleases.Value.DegreeOfFreedom.Value.ToString();
-                        if (span.StartReleases.Value.Cantilever.Value == true)
+                        string startNodeFixity = GetProperty(span.StartReleases.Value.DegreeOfFreedom).ToString();
+                        if (GetProperty(span.StartReleases.Value.Cantilever) == true)
                         {
                             startNodeFixity += " (Cantilever end)";
                         }
                         startNodeFixity = startNodeFixity.Replace(',', '|');
                         int endNodeIdx = span.EndMemberNode.ConstructionPointIndex.Value;
-                        string endNodeFixity = span.EndReleases.Value.DegreeOfFreedom.Value.ToString();
-                        if (span.EndReleases.Value.Cantilever.Value == true)
+                        string endNodeFixity = GetProperty(span.EndReleases.Value.DegreeOfFreedom).ToString();
+                        if (GetProperty(span.EndReleases.Value.Cantilever) == true)
                         {
                             endNodeFixity += " (Cantilever end)";
                         }
@@ -169,15 +171,13 @@ namespace TeklaResultsInterrogator.Commands
                             id, name, filterValue, levelName, sectionName, breadth, depth, spanName,
                             startNodeIdx, startNodeFixity, endNodeIdx, endNodeFixity, lengthFt, rot);
 
-                        Console.WriteLine(spanName);
-
                         foreach (ILoadingCase loadingCase in loadingCases)
                         {
                             string loadName = loadingCase.Name.Replace(',', '`');
                             SpanResults spanResults = new SpanResults(span, 1, loadingCase, reduced, AnalysisType, member);
 
                             // Getting maximum internal forces and displacements and locations
-                            MaxSpanInfo maxSpanInfo = spanResults.GetMaxima();
+                            MaxSpanInfo maxSpanInfo = await spanResults.GetMaxima();
                             string maxLine = spanLineOnly + "," + String.Format("{0},{1},{2},{3},{4},{5},{6},{7},{8}",
                                 loadName,
                                 maxSpanInfo.ShearMajor.Value,
@@ -207,7 +207,7 @@ namespace TeklaResultsInterrogator.Commands
 
             Check();
 
-            return Task.CompletedTask;
+            return;
         }
     }
 }
