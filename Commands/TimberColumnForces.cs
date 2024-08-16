@@ -59,7 +59,7 @@ namespace TeklaResultsInterrogator.Commands
 
             List<IMember> timberColumns = AllMembers!.Where(c => RequestedMemberType.Contains(GetProperty(c.Data.Value.Construction))).ToList();
 
-            var uDAs = Model.UserDefinedAttributesManager.GetAttributeDefinitionsByNamesAsync().Result;
+            var uDAs = await Model.UserDefinedAttributesManager.GetAttributeDefinitionsByNamesAsync();
 
             // Filter is hard coded here. Need to write something to select the UDA and Filter value;
             string filter = "Filter";
@@ -178,7 +178,7 @@ namespace TeklaResultsInterrogator.Commands
                             {
 
                                 // Do a filtering by UDAs first to see if we should results from the span
-                                var uda = span.GetUserDefinedAttributesAsync(new[] { udaFilter }).Result.Where(c => c is IUserDefinedTextAttribute);
+                                var uda = (await span.GetUserDefinedAttributesAsync(new[] { udaFilter })).Where(c => c is IUserDefinedTextAttribute);
                                 int udaCount = uda.Count();
 
                                 string udaValue = "";

@@ -59,11 +59,11 @@ namespace TeklaResultsInterrogator.Commands
 
             List<IMember> timberBeams = AllMembers.Where(c => RequestedMemberType.Contains(GetProperty(c.Data.Value.Construction))).ToList();
 
-            var uDAs = Model.UserDefinedAttributesManager.GetAttributeDefinitionsByNamesAsync().Result;
+            var uDAs = await Model.UserDefinedAttributesManager.GetAttributeDefinitionsByNamesAsync();
 
             // Filter is hard coded here. Having a string UDA filter should be part of the template file.
             string filter = "Filter";
-            string filterValue = "Low Slope Rafter";
+            string filterValue = AskUDAFilter();
 
             IAttributeDefinition udaFilter = null;
 
@@ -125,20 +125,23 @@ namespace TeklaResultsInterrogator.Commands
                     {
 
                         // Do a filtering by UDAs first to see if we should results from the span
-                        var uda = span.GetUserDefinedAttributesAsync(new[] { udaFilter }).Result.Where(c => c is IUserDefinedTextAttribute);
-                        int udaCount = uda.Count();
+                        var udaFilters = new[] { udaFilter };
+                        var udas = udaFilters != null ? (await span.GetUserDefinedAttributesAsync(udaFilters)) : null;
+                        var uda = udaFilters != null ? (await span.GetUserDefinedAttributesAsync(udaFilters))?.Where(c => c != null && c is IUserDefinedTextAttribute) : null;
+                        int udaCount = uda?.Count() ?? 0;
 
                         string udaValue = "";
 
                         if (udaCount != 0) 
                         {
-                            udaValue = ((IUserDefinedTextAttribute)uda.First()).Text;
+                            var udta = (IUserDefinedTextAttribute)uda.First();
+                            udaValue = udta.Text;
                             if (udaValue != filterValue) { continue; }
                         }
-                        else 
-                        { 
-                            // this needs logic so that if there is no filter we just get every thing
-                            continue; 
+                        else
+                        {
+                            
+                            continue;
                         }
 
 

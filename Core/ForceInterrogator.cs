@@ -333,20 +333,20 @@ namespace TeklaResultsInterrogator.Core
         }
 
         public string AskUDAFilter()
-        {       
-                string? filterValue = null;
+        {
+            string? filterValue = null;
 
-                string? readIn = AskUser("Enter the UDA Filter string: ");
-                
-                if (readIn != "")
-                {
-                    filterValue = readIn;
-                }
-                else if (readIn == "")
-                {
-                    filterValue = null;
-                }
-               
+            string? readIn = AskUser("Enter the UDA Filter string: ");
+
+            if (readIn != "")
+            {
+                filterValue = readIn;
+            }
+            else if (readIn == "")
+            {
+                filterValue = null;
+            }
+
             return (string)filterValue;
         }
 

@@ -20,7 +20,8 @@ namespace TeklaResultsInterrogator.Utils
             }
             else
             {
-                return readIn.ToUpper();
+                //return readIn.ToUpper();
+                return readIn;
             }
         }
     }
