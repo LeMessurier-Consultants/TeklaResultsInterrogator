@@ -14,6 +14,7 @@ using TSD.API.Remoting.Structure;
 using TSD.API.Remoting.Sections;
 using TeklaResultsInterrogator.Utils;
 using static TeklaResultsInterrogator.Utils.Utils;
+using TSD.API.Remoting.UserDefinedAttributes;
 
 namespace TeklaResultsInterrogator.Commands
 {
@@ -58,6 +59,23 @@ namespace TeklaResultsInterrogator.Commands
 
             List<IMember> timberBeams = AllMembers.Where(c => RequestedMemberType.Contains(GetProperty(c.Data.Value.Construction))).ToList();
 
+            var uDAs = await Model.UserDefinedAttributesManager.GetAttributeDefinitionsByNamesAsync();
+
+            // Filter is hard coded here. Having a string UDA filter should be part of the template file.
+            string filter = "Filter";
+            string filterValue = AskUDAFilter();
+
+            IAttributeDefinition udaFilter = null;
+
+            foreach (var uDa in uDAs)
+            {
+                if (uDa.Name == filter)
+                {
+                    udaFilter = uDa;
+                };
+
+            }
+
             Console.WriteLine($"{AllMembers.Count} structural members found in model.");
             Console.WriteLine($"{timberBeams.Count} timber beams found.");
 
@@ -70,8 +88,8 @@ namespace TeklaResultsInterrogator.Commands
             // Setting up file
             double start1 = timeUnpack;
             string file1 = SaveDirectory + @"TimberBeamForces_" + FileName + ".csv";
-            string header1 = String.Format("{0},{1},{2},{3},{4},{5},{6},{7},{8},{9},{10},{11},{12},{13},{14},{15},{16},{17},{18},{19},{20},{21}\n",
-                "Tekla GUID", "Member Name", "Level", "Section", "Breadth [in]", "Depth [in]", "Span Name",
+            string header1 = String.Format("{0},{1},{2},{3},{4},{5},{6},{7},{8},{9},{10},{11},{12},{13},{14},{15},{16},{17},{18},{19},{20},{21},{22}\n",
+                "Tekla GUID", "Member Name", "Filter UDA Name", "Level", "Section", "Breadth [in]", "Depth [in]", "Span Name",
                 "Start Node", "Start Node Fixity", "End Node", "End Node Fixity",
                 "Span Length [ft]", "Span Rotation [deg]", "Loading Name",
                 "Shear Major [k]", "Shear Minor [k]", "Moment Major [k-ft]", "Moment Minor [k-ft]",
@@ -105,6 +123,21 @@ namespace TeklaResultsInterrogator.Commands
 
                     foreach (IMemberSpan span in spans)
                     {
+                        if (udaFilter != null)
+                        {
+                            // Get user defined attributes requires requires a list of attributes so the attribute is put in a list of one
+                            var udaFilters = new[] { udaFilter };
+
+                            var udas = await span.GetUserDefinedAttributesAsync(udaFilters);
+
+                            // if there isn't at least one uda matching filterValue, skip code below
+                            bool udaMatchingFilterValueExists = udas.Where(c => (c as IUserDefinedTextAttribute)?.Text == filterValue)?.Any() == true;
+                            if (udaMatchingFilterValueExists == false)
+                            {
+                                continue;
+                            }
+                        }
+                        
                         string spanName = span.Name;
                         int spanIdx = span.Index;
                         double length = span.Length.Value;
@@ -131,9 +164,7 @@ namespace TeklaResultsInterrogator.Commands
                         }
                         endNodeFixity = endNodeFixity.Replace(',', '|');
 
-                        string spanLineOnly = String.Format("{0},{1},{2},{3},{4},{5},{6},{7},{8},{9},{10},{11},{12}",
-                            id, name, levelName, sectionName, breadth, depth, spanName,
-                            startNodeIdx, startNodeFixity, endNodeIdx, endNodeFixity, lengthFt, rot);
+                        string spanLineOnly = $"{id},{name},{filterValue},{levelName},{sectionName},{breadth},{depth},{spanName},{startNodeIdx},{startNodeFixity},{endNodeIdx},{endNodeFixity},{lengthFt},{rot}";
 
                         foreach (ILoadingCase loadingCase in loadingCases)
                         {
@@ -142,16 +173,8 @@ namespace TeklaResultsInterrogator.Commands
 
                             // Getting maximum internal forces and displacements and locations
                             MaxSpanInfo maxSpanInfo = await spanResults.GetMaxima();
-                            string maxLine = spanLineOnly + "," + String.Format("{0},{1},{2},{3},{4},{5},{6},{7},{8}",
-                                loadName,
-                                maxSpanInfo.ShearMajor.Value,
-                                maxSpanInfo.ShearMinor.Value,
-                                maxSpanInfo.MomentMajor.Value,
-                                maxSpanInfo.MomentMinor.Value,
-                                maxSpanInfo.AxialForce.Value,
-                                maxSpanInfo.Torsion.Value,
-                                maxSpanInfo.DeflectionMajor.Value,
-                                maxSpanInfo.DeflectionMinor.Value);
+                            string maxLine = spanLineOnly + "," +
+                                    $"{loadName},{maxSpanInfo.ShearMajor.Value},{maxSpanInfo.ShearMinor.Value},{maxSpanInfo.MomentMajor.Value},{maxSpanInfo.MomentMinor.Value},{maxSpanInfo.AxialForce.Value},{maxSpanInfo.Torsion.Value},{maxSpanInfo.DeflectionMajor.Value},{maxSpanInfo.DeflectionMinor.Value}";
                             sw1.WriteLine(maxLine);
                         }
                     }
