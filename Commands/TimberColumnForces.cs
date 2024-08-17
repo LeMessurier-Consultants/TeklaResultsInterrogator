@@ -14,6 +14,7 @@ using TSD.API.Remoting.Structure;
 using TSD.API.Remoting.Sections;
 using TeklaResultsInterrogator.Utils;
 using static TeklaResultsInterrogator.Utils.Utils;
+using TSD.API.Remoting.UserDefinedAttributes;
 
 namespace TeklaResultsInterrogator.Commands
 {
@@ -58,9 +59,12 @@ namespace TeklaResultsInterrogator.Commands
 
             List<IMember> timberColumns = AllMembers!.Where(c => RequestedMemberType.Contains(GetProperty(c.Data.Value.Construction))).ToList();
 
+            string filterField = AskUser("What UDA field to filter on?");
+            string filterValue = AskUser("What UDA value to filter on?");
+
             Console.WriteLine($"{AllMembers!.Count} structural members found in model.");
             Console.WriteLine($"{timberColumns.Count} timber columns found.");
-
+            
             List<IHorizontalConstructionPlane> levels = (await Model!.GetLevelsAsync()).ToList();
 
             double timeUnpack = Math.Round(stopwatch.Elapsed.TotalSeconds, 3);
@@ -82,12 +86,7 @@ namespace TeklaResultsInterrogator.Commands
             // Set up file
             double start1 = endStack;
             string file1 = SaveDirectory + @"TimberColumnForces_" + FileName + ".csv";
-            string header1 = String.Format("{0},{1},{2},{3},{4},{5},{6},{7},{8},{9},{10},{11},{12},{13},{14},{15},{16}\n",
-                "Tekla GUID", "Member Name", "Lift Name", "Included Spans", "Start Level", "End Level",
-                "Section", "Breadth [in]", "Depth [in]", "Length [ft]", "Loading Name",
-                "Shear Major [k]", "Shear Minor [k]",
-                "Moment Major [k-ft]", "Moment Minor [k-ft]",
-                "Axial Force [k]", "Torsion [k-ft]");
+            string header1 = "Tekla GUID,UDA Filter,Member Name,Lift Name,Included Spans,Start Level,End Level,Section,Breadth [in],Depth [in],Length [ft],Loading Name,Shear Major [k],Shear Minor [k],Moment Major [k-ft],Moment Minor [k-ft],Axial Force [k],Torsion [k-ft]\n";
             File.WriteAllText(file1, "");
             File.AppendAllText(file1, header1);
 
@@ -146,10 +145,6 @@ namespace TeklaResultsInterrogator.Commands
                         double breadth = Math.Round(section.Breadth * 0.0393701, 4);  // Converting from [mm] to [in]
                         double depth = Math.Round(section.Depth * 0.0393701, 4);  // Converting from [mm] to [in]
 
-                        string liftLineOnly = String.Format("{0},{1},{2},{3},{4},{5},{6},{7},{8},{9}",
-                            id, memberName, liftName, includedSpans, startLevelName, endLevelName, sectionName,
-                            Math.Round(breadth, 3), Math.Round(depth, 3), Math.Round(length, 3));
-
                         foreach (ILoadingCase loadingCase in loadingCases)
                         {
                             //string loadName = loadingCase.Name.Replace(',', '`');
@@ -157,21 +152,36 @@ namespace TeklaResultsInterrogator.Commands
 
                             foreach (IMemberSpan span in lift.Values)
                             {
+
+                                var udas = await span.GetUserDefinedAttributesAsync();
+
+                                // if there isn't at least one uda matching filterValue, skip code below
+                                if (string.IsNullOrEmpty(filterValue) == false)
+                                {
+                                    bool udaMatchingFilterValueExists = udas.Where(c =>
+                                        (c as IUserDefinedTextAttribute)?.Text.Equals(filterValue, StringComparison.CurrentCultureIgnoreCase) == true
+                                        && c?.AttributeDefinitionName.Equals(filterField, StringComparison.CurrentCultureIgnoreCase) == true)
+                                        ?.Any() == true;
+                                    if (udaMatchingFilterValueExists == false)
+                                    {
+                                        continue;
+                                    }
+                                }
+
                                 SpanResults spanResults = new SpanResults(span, 1, loadingCase, reduced, AnalysisType, member);
                                 MaxSpanInfo maxSpanInfo = await spanResults.GetMaxima();
                                 maxLiftInfo.EnvelopeAndUpdate(maxSpanInfo);
+
+                                string liftLineOnly = $"{id},{filterValue},{memberName},{liftName},{includedSpans},{startLevelName},{endLevelName},{sectionName},{Math.Round(breadth, 3)},{Math.Round(depth, 3)},{Math.Round(length, 3)}";
+
+                                string maxLine = liftLineOnly + "," + $"{maxLiftInfo.LoadName},{maxLiftInfo.ShearMajor.Value},{maxLiftInfo.ShearMinor.Value},{maxLiftInfo.MomentMajor.Value},{maxLiftInfo.MomentMinor.Value},{maxLiftInfo.AxialForce.Value},{maxLiftInfo.Torsion.Value}";
+                                sw1.WriteLine(maxLine);
+
                             }
 
-                            string maxLine = liftLineOnly + "," + String.Format("{0},{1},{2},{3},{4},{5},{6}",
-                                maxLiftInfo.LoadName,
-                                maxLiftInfo.ShearMajor.Value,
-                                maxLiftInfo.ShearMinor.Value,
-                                maxLiftInfo.MomentMajor.Value,
-                                maxLiftInfo.MomentMinor.Value,
-                                maxLiftInfo.AxialForce.Value,
-                                maxLiftInfo.Torsion.Value);
-                            sw1.WriteLine(maxLine);
+                           
                         }
+
                     }
                 }
             }

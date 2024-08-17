@@ -59,22 +59,8 @@ namespace TeklaResultsInterrogator.Commands
 
             List<IMember> timberBeams = AllMembers.Where(c => RequestedMemberType.Contains(GetProperty(c.Data.Value.Construction))).ToList();
 
-            var uDAs = await Model.UserDefinedAttributesManager.GetAttributeDefinitionsByNamesAsync();
-
-            // Filter is hard coded here. Having a string UDA filter should be part of the template file.
-            string filter = "Filter";
-            string filterValue = AskUDAFilter();
-
-            IAttributeDefinition udaFilter = null;
-
-            foreach (var uDa in uDAs)
-            {
-                if (uDa.Name == filter)
-                {
-                    udaFilter = uDa;
-                };
-
-            }
+            string filterField = AskUser("What UDA field to filter on?");
+            string filterValue = AskUser("What UDA value to filter on?");
 
             Console.WriteLine($"{AllMembers.Count} structural members found in model.");
             Console.WriteLine($"{timberBeams.Count} timber beams found.");
@@ -123,15 +109,16 @@ namespace TeklaResultsInterrogator.Commands
 
                     foreach (IMemberSpan span in spans)
                     {
-                        if (udaFilter != null)
+
+                        var udas = await span.GetUserDefinedAttributesAsync(); 
+
+                        // if there isn't at least one uda matching filterValue, skip code below
+                        if (string.IsNullOrEmpty(filterValue) == false)
                         {
-                            // Get user defined attributes requires requires a list of attributes so the attribute is put in a list of one
-                            var udaFilters = new[] { udaFilter };
-
-                            var udas = await span.GetUserDefinedAttributesAsync(udaFilters);
-
-                            // if there isn't at least one uda matching filterValue, skip code below
-                            bool udaMatchingFilterValueExists = udas.Where(c => (c as IUserDefinedTextAttribute)?.Text == filterValue)?.Any() == true;
+                            bool udaMatchingFilterValueExists = udas.Where(c => 
+                                (c as IUserDefinedTextAttribute)?.Text.Equals(filterValue, StringComparison.CurrentCultureIgnoreCase) == true 
+                                && c?.AttributeDefinitionName.Equals(filterField,StringComparison.CurrentCultureIgnoreCase) == true)
+                                ?.Any() == true;
                             if (udaMatchingFilterValueExists == false)
                             {
                                 continue;
