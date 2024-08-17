@@ -18,6 +18,8 @@ using AnalysisType = TSD.API.Remoting.Solver.AnalysisType;
 using MathNet.Numerics.LinearAlgebra;
 using TeklaResultsInterrogator.Utils;
 using static TeklaResultsInterrogator.Utils.Utils;
+using System;
+using TSD.API.Remoting.UserDefinedAttributes;
 //using System.Text.RegularExpressions;
 //using System.Xml.Linq;
 //using MathNet.Numerics.LinearAlgebra.Complex;
@@ -34,7 +36,6 @@ namespace TeklaResultsInterrogator.Commands
         public SteelBraceForces() 
         {
             HasOutput = true;
-            AnalysisType = AnalysisType.SecondOrderLinear;
             RequestedMemberType = new List<MemberConstruction>() { MemberConstruction.SteelBrace };
         }
 
@@ -68,28 +69,32 @@ namespace TeklaResultsInterrogator.Commands
             FancyWriteLine("\nMember summary:", TextColor.Title);
             Console.WriteLine("Unpacking member data...");
 
-            bool? GravityOnlyState = AskGravityOnly();
-            bool? AutoDesignState = AskAutoDesign();
-
             List<IMember> steelBraces = null;
             List<IConstructionPoint> allConstructionPoints = (await Model.GetConstructionPointsAsync(null)).ToList();
 
+            // This doesn't appear to work now after the API update
+            //List<IMember> steelBeams = AllMembers!.Where(c => RequestedMemberType.Contains(GetProperty(c.Data.Value.Construction))).ToList();
+            bool? GravityOnlyState = AskGravityOnly();
+            bool? AutoDesignState = AskAutoDesign();
             if (GravityOnlyState == null & AutoDesignState == null)
             {
-               steelBraces = AllMembers.Where(c => RequestedMemberType.Contains(c.Data.Value.Construction.Value)).ToList();
+              steelBraces = AllMembers!.Where(c => RequestedMemberType.Contains(GetProperty(c.Data.Value.Construction))).ToList();
             }
             else if (AutoDesignState == null)
             {
-                steelBraces = AllMembers.Where(c => RequestedMemberType.Contains(c.Data.Value.Construction.Value) & c.Data.Value.GravityOnly.Value == GravityOnlyState).ToList();
+                steelBraces = AllMembers!.Where(c => RequestedMemberType.Contains(GetProperty(c.Data.Value.Construction)) & GetProperty(c.Data.Value.GravityOnly) == GravityOnlyState).ToList();
             }
             else if (GravityOnlyState == null)
             {
-                steelBraces = AllMembers.Where(c => RequestedMemberType.Contains(c.Data.Value.Construction.Value) & c.Data.Value.AutoDesign.Value == AutoDesignState).ToList();
+               steelBraces = AllMembers!.Where(c => RequestedMemberType.Contains(GetProperty(c.Data.Value.Construction)) & GetProperty(c.Data.Value.AutoDesign) == AutoDesignState).ToList();
             }
             else
             {
-                steelBraces = AllMembers.Where(c => RequestedMemberType.Contains(c.Data.Value.Construction.Value) & c.Data.Value.AutoDesign.Value == AutoDesignState & c.Data.Value.GravityOnly.Value == GravityOnlyState).ToList();
+                steelBraces = AllMembers!.Where(c => RequestedMemberType.Contains(GetProperty(c.Data.Value.Construction)) & GetProperty(c.Data.Value.AutoDesign) == AutoDesignState & GetProperty(c.Data.Value.GravityOnly) == GravityOnlyState).ToList();
             };
+
+            string filterField = AskUser("What UDA field to filter on?");
+            string filterValue = AskUser("What UDA value to filter on?");
 
             Console.WriteLine($"{AllMembers.Count} structural members found in model.");
             Console.WriteLine($"{steelBraces.Count} steel braces found.");
@@ -99,9 +104,7 @@ namespace TeklaResultsInterrogator.Commands
 
             // Extracting internal forces
             FancyWriteLine("Retrieving internal forces...", TextColor.Title);
-            stopwatch.Stop();
-            int subdivisions = AskPoints(1);  // Setting maximum number of stations to 1
-            stopwatch.Start();
+            int subdivisions = 1;
             FancyWriteLine($"Asked for {subdivisions} points.", TextColor.Warning);
 
             // Setting up file
@@ -149,6 +152,21 @@ namespace TeklaResultsInterrogator.Commands
 
                     foreach (IMemberSpan span in spans)
                     {
+                        var udas = await span.GetUserDefinedAttributesAsync();
+
+                        // if there isn't at least one uda matching filterValue, skip code below
+                        if (string.IsNullOrEmpty(filterValue) == false)
+                        {
+                            bool udaMatchingFilterValueExists = udas.Where(c =>
+                                (c as IUserDefinedTextAttribute)?.Text.Equals(filterValue, StringComparison.CurrentCultureIgnoreCase) == true
+                                && c?.AttributeDefinitionName.Equals(filterField, StringComparison.CurrentCultureIgnoreCase) == true)
+                                ?.Any() == true;
+                            if (udaMatchingFilterValueExists == false)
+                            {
+                                continue;
+                            }
+                        }
+
                         //string spanName = span.Name;
                         int spanIdx = span.Index;
                         double length = span.Length.Value;
