@@ -171,8 +171,27 @@ namespace TeklaResultsInterrogator.Commands
             // Unpacking member data
             FancyWriteLine("\nMember summary:", TextColor.Title);
             Console.WriteLine("Unpacking member data...");
-            
-            List<IMember> steelBeams = AllMembers!.Where(c => RequestedMemberType.Contains(GetProperty(c.Data.Value.Construction))).ToList();
+
+            List<IMember> steelBeams = new List<IMember>();
+
+            bool? GravityOnlyState = AskGravityOnly();
+            bool? AutoDesignState = AskAutoDesign();
+            if (GravityOnlyState == null & AutoDesignState == null)
+            {
+                steelBeams = AllMembers!.Where(c => RequestedMemberType.Contains(GetProperty(c.Data.Value.Construction))).ToList();
+            }
+            else if (AutoDesignState == null)
+            {
+                steelBeams = AllMembers!.Where(c => RequestedMemberType.Contains(GetProperty(c.Data.Value.Construction)) & GetProperty(c.Data.Value.GravityOnly) == GravityOnlyState).ToList();
+            }
+            else if (GravityOnlyState == null)
+            {
+                steelBeams = AllMembers!.Where(c => RequestedMemberType.Contains(GetProperty(c.Data.Value.Construction)) & GetProperty(c.Data.Value.AutoDesign) == AutoDesignState).ToList();
+            }
+            else
+            {
+                steelBeams = AllMembers!.Where(c => RequestedMemberType.Contains(GetProperty(c.Data.Value.Construction)) & GetProperty(c.Data.Value.AutoDesign) == AutoDesignState & GetProperty(c.Data.Value.GravityOnly) == GravityOnlyState).ToList();
+            };
 
             Console.WriteLine($"{AllMembers!.Count} structural members found in model.");
             Console.WriteLine($"{steelBeams.Count} steel beams found.");
