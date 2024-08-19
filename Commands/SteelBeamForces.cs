@@ -172,7 +172,7 @@ namespace TeklaResultsInterrogator.Commands
             FancyWriteLine("\nMember summary:", TextColor.Title);
             Console.WriteLine("Unpacking member data...");
 
-            List<IMember> steelBeams = null;
+            List<IMember> steelBeams = new List<IMember>();
 
             bool? GravityOnlyState = AskGravityOnly();
             bool? AutoDesignState = AskAutoDesign();

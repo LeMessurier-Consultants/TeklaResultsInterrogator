@@ -69,11 +69,10 @@ namespace TeklaResultsInterrogator.Commands
             FancyWriteLine("\nMember summary:", TextColor.Title);
             Console.WriteLine("Unpacking member data...");
 
-            List<IMember> steelBraces = null;
+            List<IMember> steelBraces = new List<IMember>();
             List<IConstructionPoint> allConstructionPoints = (await Model.GetConstructionPointsAsync(null)).ToList();
 
-            // This doesn't appear to work now after the API update
-            //List<IMember> steelBeams = AllMembers!.Where(c => RequestedMemberType.Contains(GetProperty(c.Data.Value.Construction))).ToList();
+            // Filtering for Gravity Only and Autodesign braces
             bool? GravityOnlyState = AskGravityOnly();
             bool? AutoDesignState = AskAutoDesign();
             if (GravityOnlyState == null & AutoDesignState == null)
