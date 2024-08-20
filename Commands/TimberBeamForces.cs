@@ -20,6 +20,9 @@ namespace TeklaResultsInterrogator.Commands
 {
     internal class TimberBeamForces : ForceInterrogator
     {
+
+        public override bool ShowInMenu() { return true; }
+
         public TimberBeamForces()
         {
             HasOutput = true;

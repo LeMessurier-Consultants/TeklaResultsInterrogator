@@ -33,6 +33,9 @@ namespace TeklaResultsInterrogator.Commands
 {
     public class SteelBraceForces : ForceInterrogator
     {
+
+        public override bool ShowInMenu() { return true; }
+
         public SteelBraceForces() 
         {
             HasOutput = true;

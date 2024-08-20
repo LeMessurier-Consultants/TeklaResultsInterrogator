@@ -26,7 +26,8 @@ namespace TeklaResultsInterrogator.Core
         protected List<ICombination>? SolvedCombinations { get; private set; }
         protected List<IEnvelope>? AllEnvelopes { get; private set; }
         protected List<IEnvelope>? SolvedEnvelopes { get; private set; }
-        protected List<IMember>? AllMembers { get; private set; }
+        protected List<IMember>? AllMembers { get; set; }
+
         public ForceInterrogator() { }
 
         public override async Task InitializeAsync()  // to get solver model and other stuff here

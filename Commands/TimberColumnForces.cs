@@ -20,6 +20,8 @@ namespace TeklaResultsInterrogator.Commands
 {
     public class TimberColumnForces : ForceInterrogator
     {
+        public override bool ShowInMenu() { return true; }
+
         public TimberColumnForces()
         {
             HasOutput = true;

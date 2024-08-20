@@ -22,11 +22,12 @@ namespace TeklaResultsInterrogator.Commands
 {
     public class SteelBeamForces : ForceInterrogator
     {
+        public override bool ShowInMenu() {return true;}
+
         public SteelBeamForces()
         {
             HasOutput = true;
-            RequestedMemberType = new List<MemberConstruction>() { MemberConstruction.SteelBeam, MemberConstruction.CompositeBeam};
-            
+            RequestedMemberType = new List<MemberConstruction>() { MemberConstruction.SteelBeam, MemberConstruction.CompositeBeam}; 
         }
 
         string GetMemberLevelNameAsync(IMember member)
