@@ -18,7 +18,7 @@ using TSD.API.Remoting.UserDefinedAttributes;
 
 namespace TeklaResultsInterrogator.Commands
 {
-    public class TimberColumnForces : ForceInterrogator
+    public class TimberColumnForces : SolverInterrogator
     {
         public override bool ShowInMenu() { return true; }
 
@@ -170,7 +170,7 @@ namespace TeklaResultsInterrogator.Commands
                                     }
                                 }
 
-                                SpanResults spanResults = new SpanResults(span, 1, loadingCase, reduced, AnalysisType, member);
+                                SpanResults spanResults = new SpanResults(span, 1, loadingCase, reduced, AnalysisType.FirstOrderLinear, member);
                                 MaxSpanInfo maxSpanInfo = await spanResults.GetMaxima();
                                 maxLiftInfo.EnvelopeAndUpdate(maxSpanInfo);
 

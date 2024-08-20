@@ -31,7 +31,7 @@ using TSD.API.Remoting.UserDefinedAttributes;
 
 namespace TeklaResultsInterrogator.Commands
 {
-    public class SteelBraceForces : ForceInterrogator
+    public class SteelBraceForces : SolverInterrogator
     {
 
         public override bool ShowInMenu() { return true; }
@@ -229,7 +229,7 @@ namespace TeklaResultsInterrogator.Commands
                             foreach (ILoadingCase loadingCase in loadingCases)
                             {
                                 string loadName = loadingCase.Name.Replace(',', '`');
-                                SpanResults spanResults = new SpanResults(span, subdivisions, loadingCase, reduced, AnalysisType, member);
+                                SpanResults spanResults = new SpanResults(span, subdivisions, loadingCase, reduced, AnalysisType.FirstOrderLinear, member);
 
                                 if (subdivisions >= 1)
                                 {

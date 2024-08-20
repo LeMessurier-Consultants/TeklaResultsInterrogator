@@ -20,7 +20,7 @@ using System.Reflection.PortableExecutable;
 
 namespace TeklaResultsInterrogator.Commands
 {
-    public class SteelBeamForces : ForceInterrogator
+    public class SteelBeamForces : SolverInterrogator
     {
         public override bool ShowInMenu() {return true;}
 
@@ -93,7 +93,7 @@ namespace TeklaResultsInterrogator.Commands
                 foreach (ILoadingCase loadingCase in loadingCases)
                 {
                     string loadName = loadingCase.Name.Replace(',', '`');
-                    SpanResults spanResults = new SpanResults(span, subdivisions, loadingCase, reduced, AnalysisType, member);
+                    SpanResults spanResults = new SpanResults(span, subdivisions, loadingCase, reduced, AnalysisType.FirstOrderLinear, member);
 
                     if (subdivisions >= 1)
                     {

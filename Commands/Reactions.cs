@@ -20,14 +20,14 @@ using static TeklaResultsInterrogator.Utils.Utils;
 namespace TeklaResultsInterrogator.Commands
 {
 
-    public class BaseReactions : ForceInterrogator  // Should inherit a parent Interrogator class
+    public class Reactions : SolverInterrogator  // Should inherit a parent Interrogator class
     {
         // Should not declare any public properties here
 
         public override bool ShowInMenu() { return true; }
 
         // Leave class constructor parameterless
-        public BaseReactions()
+        public Reactions()
         {
             HasOutput = true;  // Only explicitly declare properties in constructor body
 

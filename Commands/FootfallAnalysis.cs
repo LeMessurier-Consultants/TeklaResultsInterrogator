@@ -10,7 +10,6 @@ namespace TeklaResultsInterrogator.Commands
 {
     public class FootfallAnalysis : VibrationInterrogator
     {
-
         public override bool ShowInMenu() { return true; }
 
         public FootfallAnalysis()
