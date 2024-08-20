@@ -18,8 +18,11 @@ using TSD.API.Remoting.UserDefinedAttributes;
 
 namespace TeklaResultsInterrogator.Commands
 {
-    internal class TimberBeamForces : ForceInterrogator
+    internal class TimberBeamForces : SolverInterrogator
     {
+
+        public override bool ShowInMenu() { return true; }
+
         public TimberBeamForces()
         {
             HasOutput = true;
@@ -156,7 +159,7 @@ namespace TeklaResultsInterrogator.Commands
                         foreach (ILoadingCase loadingCase in loadingCases)
                         {
                             string loadName = loadingCase.Name.Replace(',', '`');
-                            SpanResults spanResults = new SpanResults(span, 1, loadingCase, reduced, AnalysisType, member);
+                            SpanResults spanResults = new SpanResults(span, 1, loadingCase, reduced, AnalysisType.FirstOrderLinear, member);
 
                             // Getting maximum internal forces and displacements and locations
                             MaxSpanInfo maxSpanInfo = await spanResults.GetMaxima();

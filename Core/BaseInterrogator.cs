@@ -6,6 +6,8 @@ using TSD.API.Remoting.Common.Properties;
 using TeklaResultsInterrogator.Utils;
 using static TeklaResultsInterrogator.Utils.Utils;
 
+
+
 namespace TeklaResultsInterrogator.Core
 {
     public class BaseInterrogator
@@ -22,6 +24,7 @@ namespace TeklaResultsInterrogator.Core
         public double ExecutionTime { get; set; }
         public bool Flag { get; set; }
         public bool HasOutput { get; set; }
+        public virtual bool ShowInMenu() { return false; }
 
         public BaseInterrogator()
         {

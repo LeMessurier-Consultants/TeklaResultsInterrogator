@@ -14,7 +14,7 @@ namespace TeklaResultsInterrogator.Core
 {
     public class VibrationInterrogator : BaseInterrogator
     {
-        private AnalysisType AnalysisType = AnalysisType.FirstOrderVibration;
+        //private AnalysisType AnalysisType = AnalysisType.FirstOrderVibration;
         protected TSD.API.Remoting.Solver.IModel? SolverModel { get; set; }
         protected IEnumerable<INode>? Nodes { get; set; }
         protected ILoadingVibration? LoadingVibration { get; set; }
@@ -34,7 +34,7 @@ namespace TeklaResultsInterrogator.Core
                 Flag = true;
                 return;
             }
-            IEnumerable<TSD.API.Remoting.Solver.IModel> solverModels = await Model.GetSolverModelsAsync(new[] { AnalysisType });
+            IEnumerable<TSD.API.Remoting.Solver.IModel> solverModels = await Model.GetSolverModelsAsync(new[] { AnalysisType.FirstOrderLinear });
             if (!solverModels.Any())
             {
                 FancyWriteLine("No solver models found!", TextColor.Error);

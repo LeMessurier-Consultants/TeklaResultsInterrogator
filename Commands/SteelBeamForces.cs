@@ -20,13 +20,14 @@ using System.Reflection.PortableExecutable;
 
 namespace TeklaResultsInterrogator.Commands
 {
-    public class SteelBeamForces : ForceInterrogator
+    public class SteelBeamForces : SolverInterrogator
     {
+        public override bool ShowInMenu() {return true;}
+
         public SteelBeamForces()
         {
             HasOutput = true;
-            RequestedMemberType = new List<MemberConstruction>() { MemberConstruction.SteelBeam, MemberConstruction.CompositeBeam};
-            
+            RequestedMemberType = new List<MemberConstruction>() { MemberConstruction.SteelBeam, MemberConstruction.CompositeBeam}; 
         }
 
         string GetMemberLevelNameAsync(IMember member)
@@ -92,7 +93,7 @@ namespace TeklaResultsInterrogator.Commands
                 foreach (ILoadingCase loadingCase in loadingCases)
                 {
                     string loadName = loadingCase.Name.Replace(',', '`');
-                    SpanResults spanResults = new SpanResults(span, subdivisions, loadingCase, reduced, AnalysisType, member);
+                    SpanResults spanResults = new SpanResults(span, subdivisions, loadingCase, reduced, AnalysisType.FirstOrderLinear, member);
 
                     if (subdivisions >= 1)
                     {

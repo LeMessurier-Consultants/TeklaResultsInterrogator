@@ -9,9 +9,10 @@ namespace TeklaResultsInterrogator.Commands
 {
     public class Class1 : ForceInterrogator
     {
+
         public Class1()
         {
-
+            
         }
 
         public override async Task ExecuteAsync()
