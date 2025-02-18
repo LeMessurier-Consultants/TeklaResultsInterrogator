@@ -20,7 +20,7 @@ using TSD.API.Remoting.Bim;
 
 namespace TeklaResultsInterrogator.Commands
 {
-    internal class DesignRatios : ForceInterrogator
+    internal class DesignRatios : SolverInterrogator
     {
         public DesignRatios()
         {
