@@ -22,6 +22,8 @@ namespace TeklaResultsInterrogator.Commands
 {
     internal class DesignRatios : SolverInterrogator
     {
+        public override bool ShowInMenu() { return true; }
+
         public DesignRatios()
         {
             HasOutput = true;
