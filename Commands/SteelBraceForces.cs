@@ -229,7 +229,7 @@ namespace TeklaResultsInterrogator.Commands
                             foreach (ILoadingCase loadingCase in loadingCases)
                             {
                                 string loadName = loadingCase.Name.Replace(',', '`');
-                                SpanResults spanResults = new SpanResults(span, subdivisions, loadingCase, reduced, AnalysisType.FirstOrderLinear, member);
+                                SpanResults spanResults = new SpanResults(span, subdivisions, loadingCase, reduced, RequestedAnalysisType, member);
 
                                 if (subdivisions >= 1)
                                 {

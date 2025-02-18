@@ -170,7 +170,7 @@ namespace TeklaResultsInterrogator.Commands
                                     }
                                 }
 
-                                SpanResults spanResults = new SpanResults(span, 1, loadingCase, reduced, AnalysisType.FirstOrderLinear, member);
+                                SpanResults spanResults = new SpanResults(span, 1, loadingCase, reduced, RequestedAnalysisType, member);
                                 MaxSpanInfo maxSpanInfo = await spanResults.GetMaxima();
                                 maxLiftInfo.EnvelopeAndUpdate(maxSpanInfo);
 

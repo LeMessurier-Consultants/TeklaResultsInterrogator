@@ -159,7 +159,7 @@ namespace TeklaResultsInterrogator.Commands
                         foreach (ILoadingCase loadingCase in loadingCases)
                         {
                             string loadName = loadingCase.Name.Replace(',', '`');
-                            SpanResults spanResults = new SpanResults(span, 1, loadingCase, reduced, AnalysisType.FirstOrderLinear, member);
+                            SpanResults spanResults = new SpanResults(span, 1, loadingCase, reduced, RequestedAnalysisType, member);
 
                             // Getting maximum internal forces and displacements and locations
                             MaxSpanInfo maxSpanInfo = await spanResults.GetMaxima();
