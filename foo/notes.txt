@@ -7,7 +7,7 @@ If the user input matches the name of a valid MenuOption, the InvokeCommand meth
 If this is successful, the Menu.Command property will expose this class to the Program.Main routine where it will be asynchronously initialized.
 
 The BaseInterrogator class is the base class of all commands.
-Commands that deal with member forces inherit properties from ForceInterrogator, which is derived from BaseInterrogator.
+Commands that deal with member forces inherit properties from SolverInterrogator, which is derived from BaseInterrogator.
 Commands that dela with nodal vibrations inherit properties from VibrationInterrogator, which is derived from BaseInterrogator.
 
 Command names: green

@@ -31,8 +31,11 @@ using TSD.API.Remoting.UserDefinedAttributes;
 
 namespace TeklaResultsInterrogator.Commands
 {
-    public class SteelBraceForces : ForceInterrogator
+    public class SteelBraceForces : SolverInterrogator
     {
+
+        public override bool ShowInMenu() { return true; }
+
         public SteelBraceForces() 
         {
             HasOutput = true;
@@ -108,7 +111,7 @@ namespace TeklaResultsInterrogator.Commands
 
             // Setting up file
             double start1 = timeUnpack;
-            string file1 = SaveDirectory + @"SteelBraceForces_" + FileName + ".csv";
+            string file1 = SaveDirectory + @"SteelBraceForces_" + OutputFileName + ".csv";
             string header1 = String.Format("{0},{1},{2},{3},{4},{5},{6},{7},{8},{9},{10},{11},{12},{13},{14},{15},{16},{17} \n",
                 "Tekla GUID", "Member Name", "Level","Grid", "Shape", "Material", 
                 "Start Node", "Start Node X", "Start Node Y", "Start Node Z", "End Node", "End Node X", "End Node Y", "End Node Z",
@@ -226,7 +229,7 @@ namespace TeklaResultsInterrogator.Commands
                             foreach (ILoadingCase loadingCase in loadingCases)
                             {
                                 string loadName = loadingCase.Name.Replace(',', '`');
-                                SpanResults spanResults = new SpanResults(span, subdivisions, loadingCase, reduced, AnalysisType, member);
+                                SpanResults spanResults = new SpanResults(span, subdivisions, loadingCase, reduced, RequestedAnalysisType, member);
 
                                 if (subdivisions >= 1)
                                 {

@@ -9,7 +9,16 @@ namespace TeklaResultsInterrogator.Commands
 {
     internal class ConsoleColors : BaseInterrogator
     {
-        public ConsoleColors() { }
+
+      
+
+        public ConsoleColors() {
+
+
+            
+
+        }
+
         public override async Task ExecuteAsync()
         {
             await InitializeAsync();

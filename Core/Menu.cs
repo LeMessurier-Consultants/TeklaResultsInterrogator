@@ -1,9 +1,11 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Linq;
 using System.Reflection;
 using System.Text;
 using System.Threading.Tasks;
+using TeklaResultsInterrogator.Commands;
 
 namespace TeklaResultsInterrogator.Core
 {
@@ -29,7 +31,7 @@ namespace TeklaResultsInterrogator.Core
                 Console.ForegroundColor = ConsoleColor.Green;
                 string? readIn = Console.ReadLine();
                 Console.ForegroundColor = ConsoleColor.White;
-                int commandIndex = Options.FindIndex(c => c.Name == readIn);
+                int commandIndex = Options.FindIndex(c => c.Name.ToUpper() == readIn.ToUpper());
 
                 // If readIn corresponds to a command in Options, Invoke it
                 if (commandIndex >=0)
@@ -70,10 +72,17 @@ namespace TeklaResultsInterrogator.Core
             List<MenuOption> options = new List<MenuOption>();
             Assembly assembly = Assembly.GetExecutingAssembly();
             List<Type> types = assembly.GetTypes().Where(t => t.Namespace == "TeklaResultsInterrogator.Commands" && t.IsNested == false).ToList();
+           
             foreach (Type type in types)
             {
-                string commandName = type.Name;
-                options.Add(new MenuOption(commandName, () => InvokeCommand(commandName)));
+                    // Checks to see if the method ShowInMenu is true
+                    bool? result = Convert.ToBoolean(type.GetMethod("ShowInMenu")?.Invoke(Activator.CreateInstance(type), null));
+                    if (result==true) 
+                    {
+                        string commandName = type.Name;
+                        options.Add(new MenuOption(commandName, () => InvokeCommand(commandName)));
+                    }
+ 
             }
             return options;
         }

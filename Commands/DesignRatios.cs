@@ -20,8 +20,10 @@ using TSD.API.Remoting.Bim;
 
 namespace TeklaResultsInterrogator.Commands
 {
-    internal class DesignRatios : ForceInterrogator
+    internal class DesignRatios : SolverInterrogator
     {
+        public override bool ShowInMenu() { return true; }
+
         public DesignRatios()
         {
             HasOutput = true;
@@ -109,7 +111,7 @@ namespace TeklaResultsInterrogator.Commands
 
             // Setting up output file
             double start1 = timeUnpack;
-            string file1 = SaveDirectory + @"DesignRatios-static_" + FileName + ".csv";
+            string file1 = SaveDirectory + @"DesignRatios-static_" + OutputFileName + ".csv";
             string header1 = String.Format("{0},{1},{2}\n",
                 "Tekla GUID", "Span Name", "Utilization Ratio (Static)");
             File.WriteAllText(file1, "");

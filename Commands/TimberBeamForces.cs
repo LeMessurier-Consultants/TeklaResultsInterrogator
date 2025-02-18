@@ -18,8 +18,11 @@ using TSD.API.Remoting.UserDefinedAttributes;
 
 namespace TeklaResultsInterrogator.Commands
 {
-    internal class TimberBeamForces : ForceInterrogator
+    internal class TimberBeamForces : SolverInterrogator
     {
+
+        public override bool ShowInMenu() { return true; }
+
         public TimberBeamForces()
         {
             HasOutput = true;
@@ -73,7 +76,7 @@ namespace TeklaResultsInterrogator.Commands
 
             // Setting up file
             double start1 = timeUnpack;
-            string file1 = SaveDirectory + @"TimberBeamForces_" + FileName + ".csv";
+            string file1 = SaveDirectory + @"TimberBeamForces_" + OutputFileName + ".csv";
             string header1 = String.Format("{0},{1},{2},{3},{4},{5},{6},{7},{8},{9},{10},{11},{12},{13},{14},{15},{16},{17},{18},{19},{20},{21},{22}\n",
                 "Tekla GUID", "Member Name", "Filter UDA Name", "Level", "Section", "Breadth [in]", "Depth [in]", "Span Name",
                 "Start Node", "Start Node Fixity", "End Node", "End Node Fixity",
@@ -156,7 +159,7 @@ namespace TeklaResultsInterrogator.Commands
                         foreach (ILoadingCase loadingCase in loadingCases)
                         {
                             string loadName = loadingCase.Name.Replace(',', '`');
-                            SpanResults spanResults = new SpanResults(span, 1, loadingCase, reduced, AnalysisType, member);
+                            SpanResults spanResults = new SpanResults(span, 1, loadingCase, reduced, RequestedAnalysisType, member);
 
                             // Getting maximum internal forces and displacements and locations
                             MaxSpanInfo maxSpanInfo = await spanResults.GetMaxima();

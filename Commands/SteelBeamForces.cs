@@ -20,13 +20,14 @@ using System.Reflection.PortableExecutable;
 
 namespace TeklaResultsInterrogator.Commands
 {
-    public class SteelBeamForces : ForceInterrogator
+    public class SteelBeamForces : SolverInterrogator
     {
+        public override bool ShowInMenu() {return true;}
+
         public SteelBeamForces()
         {
             HasOutput = true;
-            RequestedMemberType = new List<MemberConstruction>() { MemberConstruction.SteelBeam, MemberConstruction.CompositeBeam};
-            
+            RequestedMemberType = new List<MemberConstruction>() { MemberConstruction.SteelBeam, MemberConstruction.CompositeBeam}; 
         }
 
         string GetMemberLevelNameAsync(IMember member)
@@ -92,7 +93,7 @@ namespace TeklaResultsInterrogator.Commands
                 foreach (ILoadingCase loadingCase in loadingCases)
                 {
                     string loadName = loadingCase.Name.Replace(',', '`');
-                    SpanResults spanResults = new SpanResults(span, subdivisions, loadingCase, reduced, AnalysisType, member);
+                    SpanResults spanResults = new SpanResults(span, subdivisions, loadingCase, reduced, RequestedAnalysisType, member);
 
                     if (subdivisions >= 1)
                     {
@@ -208,7 +209,7 @@ namespace TeklaResultsInterrogator.Commands
 
             // Setting up file
             double start1 = timeUnpack;
-            string file1 = SaveDirectory + @"SteelBeamForces_" + FileName + ".csv";
+            string file1 = SaveDirectory + @"SteelBeamForces_" + OutputFileName + ".csv";
             string header1 = String.Format("{0},{1},{2},{3},{4},{5},{6},{7},{8},{9},{10},{11},{12},{13},{14},{15},{16},{17},{18},{19},{20},{21}\n",
                 "Tekla GUID", "Member Name", "Level", "Shape", "Material", "Span Name",
                 "Start Node", "Start Node Fixity", "End Node", "End Node Fixity",

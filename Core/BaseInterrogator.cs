@@ -6,6 +6,8 @@ using TSD.API.Remoting.Common.Properties;
 using TeklaResultsInterrogator.Utils;
 using static TeklaResultsInterrogator.Utils.Utils;
 
+
+
 namespace TeklaResultsInterrogator.Core
 {
     public class BaseInterrogator
@@ -15,6 +17,7 @@ namespace TeklaResultsInterrogator.Core
         protected IDocument? Document { get; set; }
         public string? DocumentPath { get; set; }
         public string? FileName { get; set; }
+        public string? OutputFileName { get; set; }
         public string? DocumentDirectory { get; set; }
         public string? SaveDirectory { get; set; }
         protected TSD.API.Remoting.Structure.IModel? Model { get; set; }
@@ -22,6 +25,7 @@ namespace TeklaResultsInterrogator.Core
         public double ExecutionTime { get; set; }
         public bool Flag { get; set; }
         public bool HasOutput { get; set; }
+        public virtual bool ShowInMenu() { return false; }
 
         public BaseInterrogator()
         {
@@ -66,6 +70,9 @@ namespace TeklaResultsInterrogator.Core
             FileName = Document.Path[(Document.Path.LastIndexOf('\\') + 1)..];
             FileName = FileName[..FileName.LastIndexOf(".tsmd")];
             FileName = FileName.Replace(" ", "");
+            OutputFileName = DateTime.Now.ToString("yyyyMMdd-HHmmss") + "_" + FileName;
+           
+
             DocumentDirectory = Document.Path[..DocumentPath.LastIndexOf('\\')];
 
             Model = await Document.GetModelAsync();
