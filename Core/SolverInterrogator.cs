@@ -217,19 +217,19 @@ namespace TeklaResultsInterrogator.Core
 
         public List<ILoadingCase> AskLoading(List<ILoadcase> solvedCases, List<ICombination> solvedCombinations, List<IEnvelope> solvedEnvelopes)
         {
-            Dictionary<string, List<ILoadingCase>> loadingOptions = new Dictionary<string, List<ILoadingCase>>();
+            Dictionary<string, List<ILoadingCase>> loadingOptions = new Dictionary<string, List<ILoadingCase>>(StringComparer.InvariantCultureIgnoreCase);
 
             if (solvedCases.Count > 0)
             {
-                loadingOptions.Add("LOADCASES", solvedCases.Cast<ILoadingCase>().ToList());
+                loadingOptions.Add("Cases", solvedCases.Cast<ILoadingCase>().ToList());
             }
             if (solvedCombinations.Count > 0)
             {
-                loadingOptions.Add("COMBINATIONS", solvedCombinations.Cast<ILoadingCase>().ToList());
+                loadingOptions.Add("Combos", solvedCombinations.Cast<ILoadingCase>().ToList());
             }
             if (solvedEnvelopes.Count > 0)
             {
-                loadingOptions.Add("ENVELOPES", solvedEnvelopes.Cast<ILoadingCase>().ToList());
+                loadingOptions.Add("Envelopes", solvedEnvelopes.Cast<ILoadingCase>().ToList());
             }
 
             List<ILoadingCase>? loadingCases = null;
@@ -243,12 +243,13 @@ namespace TeklaResultsInterrogator.Core
             do
             {
                 string? readIn = AskUser("Choose an available loading condition: ");
-                if (readIn != null && loadingOptions.Keys.Contains(readIn))
-                {
+                if (readIn != null && loadingOptions.ContainsKey(readIn))
+                    {
 
                     loadingCases = loadingOptions[readIn];
+
                     FancyWriteLine("Available loading:", TextColor.Text);
-                    foreach (var load in loadingCases)
+                    foreach (var load in loadingCases.OrderBy(o => o.ReferenceIndex))
                     {
                         FancyWriteLine(load.Name, TextColor.Text);
                     }
@@ -260,7 +261,7 @@ namespace TeklaResultsInterrogator.Core
                 }
                 else
                 {
-                    FancyWriteLine("Loading Condition", $"{readIn}", " not found.", TextColor.Command);
+                    FancyWriteLine("Loading Condition", $" {readIn}", " not found.", TextColor.Command);
                 }
             } while (loadingCases == null);
 
@@ -355,8 +356,8 @@ namespace TeklaResultsInterrogator.Core
             bool? reduced = null;
             do
             {
-                string? readIn = AskUser("Enter Y to query reduced forces, or N to query nonreduced forces: ");
-                if (readIn == "Y")
+                string? readIn = AskUser("Enter N to query nonreduced forces, or hit Enter to get reduced forces (where applicable): ");
+                if (readIn == "")
                 {
                     reduced = true;
                 }

@@ -31,7 +31,7 @@ namespace TeklaResultsInterrogator.Core
                 Console.ForegroundColor = ConsoleColor.Green;
                 string? readIn = Console.ReadLine();
                 Console.ForegroundColor = ConsoleColor.White;
-                int commandIndex = Options.FindIndex(c => c.Name == readIn);
+                int commandIndex = Options.FindIndex(c => c.Name.ToUpper() == readIn.ToUpper());
 
                 // If readIn corresponds to a command in Options, Invoke it
                 if (commandIndex >=0)
