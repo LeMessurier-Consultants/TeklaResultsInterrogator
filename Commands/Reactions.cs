@@ -73,7 +73,7 @@ namespace TeklaResultsInterrogator.Commands
                         
             var header = new List<string>() {"SolverNodeId", "Support Name", "x","y","z","Loading", "Fx", "Fy", "Fz", "Mx", "My", "Mz"};
 
-            string file = SaveDirectory  + @"\Reactions_" + FileName + ".csv";
+            string file = SaveDirectory  + @"\Reactions_" + OutputFileName + ".csv";
 
             WriteToCsv(header, reactions, file);
 
