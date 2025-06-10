@@ -10,6 +10,8 @@ namespace TeklaResultsInterrogator.Commands
 {
     public class FootfallAnalysis : VibrationInterrogator
     {
+        public override bool ShowInMenu() { return true; }
+
         public FootfallAnalysis()
         {
             HasOutput = true;
@@ -57,7 +59,7 @@ namespace TeklaResultsInterrogator.Commands
             FancyWriteLine("Modal Information Table:", TextColor.Title);
             Console.WriteLine("Writing modal information table...");
             double start1 = stopwatch.Elapsed.TotalSeconds;
-            string file1 = SaveDirectory + @"FootfallAnalysis-ModalInformation_" + FileName + ".csv";
+            string file1 = SaveDirectory + @"FootfallAnalysis-ModalInformation_" + OutputFileName + ".csv";
             string header1 = String.Format("{0},{1},{2},{3},{4},{5},{6},{7},{8}\n", "Mode No.", "Frequency [Hz]", "Modal Mass [N]", "Mx [%]", "My [%]", "Mz [%]", "Rx [%]", "Ry [%]", "Rz [%]");
             File.WriteAllText(file1, "");
             File.AppendAllText(file1, header1);
@@ -95,7 +97,7 @@ namespace TeklaResultsInterrogator.Commands
             FancyWriteLine("Modal Shape Table:", TextColor.Title);
             Console.WriteLine("Writing modal shape table...");
             double start2 = stopwatch.Elapsed.TotalSeconds;
-            string file2 = SaveDirectory + @"FootfallAnalysis-ModalShapes_" + FileName + ".csv";
+            string file2 = SaveDirectory + @"FootfallAnalysis-ModalShapes_" + OutputFileName + ".csv";
             string header2 = String.Format("{0},{1},{2},{3},{4},{5},{6},{7}\n", "Joint ID", "Mode No.", "Ux [m]", "Uy [m]", "Uz [m]", "Rx [rad]", "Ry [rad]", "Rz [rad]");
             File.WriteAllText(file2, "");
             File.WriteAllText(file2, header2);
@@ -139,7 +141,7 @@ namespace TeklaResultsInterrogator.Commands
             FancyWriteLine("Joint Coordinator Table:", TextColor.Title);
             Console.WriteLine("Writing joint coordinator table...");
             double start3 = stopwatch.Elapsed.TotalSeconds;
-            string file3 = SaveDirectory + @"FootFallAnalysis-JointCoordinator_" + FileName + ".csv";
+            string file3 = SaveDirectory + @"FootFallAnalysis-JointCoordinator_" + OutputFileName + ".csv";
             string header3 = String.Format("{0},{1},{2},{3}\n", "Joint ID", "X [ft]", "Y [ft]", "Z [ft]");
             File.WriteAllText(file3, "");
             File.AppendAllText(file3, header3);

@@ -12,6 +12,8 @@ namespace TeklaResultsInterrogator.Commands
     {
         // Should not declare any public properties here
 
+        //public override bool ShowInMenu() {return true;}
+
         // Leave class constructor parameterless
         public CommandTemplate()
         {

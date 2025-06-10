@@ -18,8 +18,10 @@ using TSD.API.Remoting.UserDefinedAttributes;
 
 namespace TeklaResultsInterrogator.Commands
 {
-    public class TimberColumnForces : ForceInterrogator
+    public class TimberColumnForces : SolverInterrogator
     {
+        public override bool ShowInMenu() { return true; }
+
         public TimberColumnForces()
         {
             HasOutput = true;
@@ -85,7 +87,7 @@ namespace TeklaResultsInterrogator.Commands
 
             // Set up file
             double start1 = endStack;
-            string file1 = SaveDirectory + @"TimberColumnForces_" + FileName + ".csv";
+            string file1 = SaveDirectory + @"TimberColumnForces_" + OutputFileName + ".csv";
             string header1 = "Tekla GUID,UDA Filter,Member Name,Lift Name,Included Spans,Start Level,End Level,Section,Breadth [in],Depth [in],Length [ft],Loading Name,Shear Major [k],Shear Minor [k],Moment Major [k-ft],Moment Minor [k-ft],Axial Force [k],Torsion [k-ft]\n";
             File.WriteAllText(file1, "");
             File.AppendAllText(file1, header1);
@@ -168,7 +170,7 @@ namespace TeklaResultsInterrogator.Commands
                                     }
                                 }
 
-                                SpanResults spanResults = new SpanResults(span, 1, loadingCase, reduced, AnalysisType, member);
+                                SpanResults spanResults = new SpanResults(span, 1, loadingCase, reduced, RequestedAnalysisType, member);
                                 MaxSpanInfo maxSpanInfo = await spanResults.GetMaxima();
                                 maxLiftInfo.EnvelopeAndUpdate(maxSpanInfo);
 

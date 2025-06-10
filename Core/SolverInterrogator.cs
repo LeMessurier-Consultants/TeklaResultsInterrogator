@@ -14,20 +14,22 @@ using static TeklaResultsInterrogator.Utils.Utils;
 
 namespace TeklaResultsInterrogator.Core
 {
-    public class ForceInterrogator : BaseInterrogator
+    public class SolverInterrogator : BaseInterrogator
     {
-        protected AnalysisType AnalysisType = AnalysisType.FirstOrderLinear;
-
-        protected List<MemberConstruction> RequestedMemberType = new List<MemberConstruction>();
+        
         protected TSD.API.Remoting.Solver.IModel? SolverModel { get; private set; }
+        protected AnalysisType RequestedAnalysisType { get; private set; }
         protected List<ILoadcase>? AllLoadcases { get; private set; }
         protected List<ILoadcase>? SolvedCases { get; private set; }
         protected List<ICombination>? AllCombinations { get; private set; }
         protected List<ICombination>? SolvedCombinations { get; private set; }
         protected List<IEnvelope>? AllEnvelopes { get; private set; }
         protected List<IEnvelope>? SolvedEnvelopes { get; private set; }
-        protected List<IMember>? AllMembers { get; private set; }
-        public ForceInterrogator() { }
+        protected List<IMember>? AllMembers { get; set; }
+
+        protected List<MemberConstruction> RequestedMemberType = new List<MemberConstruction>();
+
+        public SolverInterrogator() { }
 
         public override async Task InitializeAsync()  // to get solver model and other stuff here
         {
@@ -35,7 +37,7 @@ namespace TeklaResultsInterrogator.Core
             Stopwatch stopwatch = Stopwatch.StartNew();
             await InitializeBaseAsync();
 
-            // Get 1st Order Linear SolverModel
+            // Get Model
             Console.WriteLine("Searching for analysis solver model...");
             if (Model == null)
             {
@@ -43,16 +45,50 @@ namespace TeklaResultsInterrogator.Core
                 Flag = true;
                 return;
             }
-            Console.WriteLine($"Using {AnalysisType}");
-            IEnumerable<TSD.API.Remoting.Solver.IModel> solverModels = await Model.GetSolverModelsAsync(new[] { AnalysisType });
+            
+            AnalysisType defaultAnalysisType = AnalysisType.FirstOrderLinear;// Default
+
+            List<AnalysisType> solvedAnalysisTypes = new List<AnalysisType>();
+
+            foreach (AnalysisType analysisType in System.Enum.GetValues(typeof(AnalysisType)))
+            {
+                if (analysisType!=AnalysisType.Unknown && analysisType!=AnalysisType.None)
+                {
+                    
+                    IEnumerable<TSD.API.Remoting.Solver.IModel> solverModels2 = await Model.GetSolverModelsAsync(new[] { analysisType });
+                    if (solverModels2.Any())
+                    {
+                        //FancyWriteLine(analysisType.ToString(), TextColor.Error);
+                        solvedAnalysisTypes.Add(analysisType);
+                    }
+                }
+            }
+
+            int count = 0;
+
+            foreach (AnalysisType analysisType in solvedAnalysisTypes)
+            {
+                count = count + 1;
+                FancyWriteLine(count.ToString() + " - " + analysisType.ToString(), TextColor.Text);
+            }
+            string? readIn = AskUser("Input a number or hit Enter to use default 1st Order Linear. ");
+            bool keepReading = int.TryParse(readIn, out int intOption);
+            if (readIn != null && readIn != "" && keepReading == true)
+            {
+                RequestedAnalysisType = solvedAnalysisTypes[intOption-1];
+            }
+            else 
+            {
+                RequestedAnalysisType = defaultAnalysisType;
+            }
+
+            IEnumerable<TSD.API.Remoting.Solver.IModel> solverModels = await Model.GetSolverModelsAsync(new[] { defaultAnalysisType });
             if (!solverModels.Any())
             {
                 FancyWriteLine("No solver models found!", TextColor.Error);
                 Flag = true;
                 return;
             }
-
-            FancyWriteLine($"{AnalysisType} solver model found.", TextColor.Text);
 
             TSD.API.Remoting.Solver.IModel? solverModel = solverModels.FirstOrDefault();
             if (solverModel == null)
@@ -62,7 +98,7 @@ namespace TeklaResultsInterrogator.Core
                 return;
             }
             SolverModel = solverModel;
-    
+
             // Get Analysis Results
             Console.WriteLine("Searching for analysis results...");
             IAnalysisResults? solverResults = await SolverModel.GetResultsAsync();
@@ -176,21 +212,24 @@ namespace TeklaResultsInterrogator.Core
             return;
         }
 
+
+
+
         public List<ILoadingCase> AskLoading(List<ILoadcase> solvedCases, List<ICombination> solvedCombinations, List<IEnvelope> solvedEnvelopes)
         {
-            Dictionary<string, List<ILoadingCase>> loadingOptions = new Dictionary<string, List<ILoadingCase>>();
+            Dictionary<string, List<ILoadingCase>> loadingOptions = new Dictionary<string, List<ILoadingCase>>(StringComparer.InvariantCultureIgnoreCase);
 
             if (solvedCases.Count > 0)
             {
-                loadingOptions.Add("LOADCASES", solvedCases.Cast<ILoadingCase>().ToList());
+                loadingOptions.Add("Cases", solvedCases.Cast<ILoadingCase>().ToList());
             }
             if (solvedCombinations.Count > 0)
             {
-                loadingOptions.Add("COMBINATIONS", solvedCombinations.Cast<ILoadingCase>().ToList());
+                loadingOptions.Add("Combos", solvedCombinations.Cast<ILoadingCase>().ToList());
             }
             if (solvedEnvelopes.Count > 0)
             {
-                loadingOptions.Add("ENVELOPES", solvedEnvelopes.Cast<ILoadingCase>().ToList());
+                loadingOptions.Add("Envelopes", solvedEnvelopes.Cast<ILoadingCase>().ToList());
             }
 
             List<ILoadingCase>? loadingCases = null;
@@ -204,23 +243,25 @@ namespace TeklaResultsInterrogator.Core
             do
             {
                 string? readIn = AskUser("Choose an available loading condition: ");
-                if (readIn != null && loadingOptions.Keys.Contains(readIn))
-                {   
-                    
+                if (readIn != null && loadingOptions.ContainsKey(readIn))
+                    {
+
                     loadingCases = loadingOptions[readIn];
+
                     FancyWriteLine("Available loading:", TextColor.Text);
-                    foreach (var load in loadingCases)
+                    foreach (var load in loadingCases.OrderBy(o => o.ReferenceIndex))
                     {
                         FancyWriteLine(load.Name, TextColor.Text);
                     }
                     readIn = AskUser("Input a number or hit Enter to get all: ");
-                    if (readIn != null && readIn!="") {
+                    if (readIn != null && readIn != "")
+                    {
                         loadingCases = loadingCases.Where(load => load.ReferenceIndex.Equals(Convert.ToInt32(readIn))).ToList(); // This is a bad way of doing this because I am not checking if the integer is valid, but it let's not let perfect be the enemy of the good!
                     }
                 }
                 else
                 {
-                    FancyWriteLine("Loading Condition", $"{readIn}", " not found.", TextColor.Command);
+                    FancyWriteLine("Loading Condition", $" {readIn}", " not found.", TextColor.Command);
                 }
             } while (loadingCases == null);
 
@@ -230,8 +271,8 @@ namespace TeklaResultsInterrogator.Core
         public bool? AskGravityOnly()
         {
             bool? GravityOnly = null;
-   
-                string? readIn = AskUser("Enter Y to query Gravity Only members, or N to query Lateral members, hit Enter to get All");
+
+            string? readIn = AskUser("Enter Y to query Gravity Only members, or N to query Lateral members, hit Enter to get All");
             do
             {
                 if (readIn == "Y")
@@ -252,7 +293,7 @@ namespace TeklaResultsInterrogator.Core
                 }
 
             } while (GravityOnly == null);
-            
+
             return (bool?)GravityOnly;
         }
 
@@ -286,7 +327,7 @@ namespace TeklaResultsInterrogator.Core
         {
             FancyWriteLine("Select the number of points along beam span at which forces and displacements will be calculated.", TextColor.Text);
             FancyWriteLine("Enter ", "1", " to return maxima only.", TextColor.Command);
-            if (maxPoints >= 2) 
+            if (maxPoints >= 2)
             {
                 FancyWriteLine("Enter ", "2", $" or greater (max. {maxPoints}) to subdivide spans.", TextColor.Command);
             }
@@ -315,8 +356,8 @@ namespace TeklaResultsInterrogator.Core
             bool? reduced = null;
             do
             {
-                string? readIn = AskUser("Enter Y to query reduced forces, or N to query nonreduced forces: ");
-                if (readIn == "Y")
+                string? readIn = AskUser("Enter N to query nonreduced forces, or hit Enter to get reduced forces (where applicable): ");
+                if (readIn == "")
                 {
                     reduced = true;
                 }
