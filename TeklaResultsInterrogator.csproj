@@ -7,6 +7,7 @@
     <Nullable>enable</Nullable>
     <ApplicationIcon>foo\TRILogo.ico</ApplicationIcon>
     <GenerateDocumentationFile>True</GenerateDocumentationFile>
+    <Platforms>AnyCPU;x64</Platforms>
   </PropertyGroup>
 
   <ItemGroup>
@@ -15,7 +16,7 @@
 
   <ItemGroup>
     <PackageReference Include="MathNet.Numerics" Version="5.0.0" />
-    <PackageReference Include="TeklaStructuralDesigner.RemotingAPI" Version="24.1.0" />
+    <PackageReference Include="TeklaStructuralDesigner.RemotingAPI" Version="24.3.0" />
   </ItemGroup>
 
   <ItemGroup>

@@ -110,8 +110,8 @@ namespace TeklaResultsInterrogator.Commands
             // Setting up output file
             double start1 = timeUnpack;
             string file1 = SaveDirectory + @"DesignRatios-static_" + FileName + ".csv";
-            string header1 = String.Format("{0},{1},{2}\n",
-                "Tekla GUID", "Span Name", "Utilization Ratio (Static)");
+            string header1 = String.Format("{0},{1},{2},{3}\n",
+                "Tekla GUID", "Span Name", "Utilization Ratio (Static)", "Section");
             File.WriteAllText(file1, "");
             File.AppendAllText(file1, header1);
 
@@ -140,11 +140,13 @@ namespace TeklaResultsInterrogator.Commands
                         // Get Span identifiers
                         string spanName = span.Name.Replace(',', '`');
                         Guid spanID = span.Id;
+                        IMemberSection section = (IMemberSection)span.ElementSection.Value;
+                        string sectionName = section.PhysicalSection.Value.LongName;
 
                         // Write if ratio
                         if (staticRatio != null)
                         {
-                            string line = String.Format("{0},{1},{2}", spanID, spanName, staticRatio);
+                            string line = String.Format("{0},{1},{2}, {3}", spanID, spanName, staticRatio, sectionName);
                             sw1.WriteLine(line);
                         }
                     }
