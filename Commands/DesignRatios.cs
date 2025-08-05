@@ -111,15 +111,13 @@ namespace TeklaResultsInterrogator.Commands
 
             // Setting up output file
             double start1 = timeUnpack;
-<<<<<<< HEAD
+
             string file1 = SaveDirectory + @"DesignRatios-static_" + FileName + ".csv";
             string header1 = String.Format("{0},{1},{2},{3}\n",
                 "Tekla GUID", "Span Name", "Utilization Ratio (Static)", "Section");
-=======
-            string file1 = SaveDirectory + @"DesignRatios-static_" + OutputFileName + ".csv";
-            string header1 = String.Format("{0},{1},{2}\n",
-                "Tekla GUID", "Span Name", "Utilization Ratio (Static)");
->>>>>>> bd239699610aaaede9b8b1cf57593dbdbad627d6
+
+       
+
             File.WriteAllText(file1, "");
             File.AppendAllText(file1, header1);
 
