@@ -15,7 +15,7 @@ using TSD.API.Remoting.Sections;
 using TeklaResultsInterrogator.Utils;
 using static TeklaResultsInterrogator.Utils.Utils;
 using TSD.API.Remoting.UserDefinedAttributes;
-
+//Test
 namespace TeklaResultsInterrogator.Commands
 {
     public class TimberColumnForces : SolverInterrogator
