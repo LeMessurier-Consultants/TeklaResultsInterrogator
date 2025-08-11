@@ -27,10 +27,21 @@ namespace TeklaResultsInterrogator.Core
         public async Task OrganizeByFixity()
         {
             IEnumerable<IMemberSpan> spans = await ParentMember.GetSpanAsync();
+
+                        
+           
+
             spans = spans.OrderBy(s => s.Index);
             bool previousSpanTopFixed = false;
             foreach (var span in spans)
             {
+                   
+              
+
+                bool splice = CheckHasSplice(span);
+
+
+
                 bool thisBotFixed = CheckFixity(span, StackEnd.Bottom);
                 bool thisTopFixed = CheckFixity(span, StackEnd.Top);
                 
@@ -51,6 +62,29 @@ namespace TeklaResultsInterrogator.Core
 
             return;
         }
+
+
+    
+private bool CheckHasSplice(IMemberSpan span)
+
+        {
+            bool? hasSplice = false;
+
+            ISteelColumnStackData steelstackData = (ISteelColumnStackData)span.Data.Value;
+
+            if (steelstackData.HasSplice.IsApplicable)
+            {
+                hasSplice = steelstackData.HasSplice.Value; // Access the 'Value' property of IProperty<bool>  
+            }
+            else
+            {
+                hasSplice = false;
+            }
+
+            return hasSplice ?? false; // Ensure a non-nullable bool is returned  
+        }
+
+
 
         private bool CheckFixity(IMemberSpan span, StackEnd end)
         {

@@ -25,7 +25,7 @@ namespace TeklaResultsInterrogator.Commands
         public TimberColumnForces()
         {
             HasOutput = true;
-            RequestedMemberType = new List<MemberConstruction>() { MemberConstruction.TimberColumn };
+            RequestedMemberType = new List<MemberConstruction>() { MemberConstruction.SteelColumn };
         }
 
         public override async Task ExecuteAsync()
@@ -78,6 +78,8 @@ namespace TeklaResultsInterrogator.Commands
             List<ColumnLifts> timberColumnLifts = new List<ColumnLifts>();
             foreach (IMember column in timberColumns)
             {
+
+                
                 ColumnLifts lifts = new ColumnLifts(column);
                 await lifts.OrganizeByFixity();
                 timberColumnLifts.Add(lifts);

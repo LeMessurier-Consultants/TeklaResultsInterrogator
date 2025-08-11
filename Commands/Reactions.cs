@@ -56,15 +56,15 @@ namespace TeklaResultsInterrogator.Commands
 
                 List<object[]> reactions = new List<object[]>();
 
-                foreach (ILoadcase loadcase in loadingCases)
+                foreach (ILoadingCase loadingCase in loadingCases)
                 {
                     foreach (INode support in allSupports)
                     {
-                        IForce3DGlobal reaction = await support.GetSupportReactionAsync(loadcase.Id, false);
+                        IForce3DGlobal reaction = await support.GetSupportReactionAsync(loadingCase.Id, false);
                         IConstructionPoint my_point = constructionPoints.Where(pt => pt.SolverNodeIndex.Value.Equals(support.Index)).First();
                         object[] support_reactions = { support.Index, my_point.Name,
                                                        mm2ft(support.Coordinates.X), mm2ft(support.Coordinates.Y), mm2ft(support.Coordinates.Z),
-                                                       loadcase.Name, ToK(reaction.Fx), ToK(reaction.Fy), ToK(reaction.Fz),
+                                                       loadingCase.Name, ToK(reaction.Fx), ToK(reaction.Fy), ToK(reaction.Fz),
                                                        ToKFt(reaction.Mx), ToKFt(reaction.My), ToKFt(reaction.Mz) };
                         reactions.Add(support_reactions);
                     }
