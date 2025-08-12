@@ -171,8 +171,8 @@ namespace TeklaResultsInterrogator.Commands
                         string endNodeFixity = GetNodeFixityDescription(span.EndReleases.Value);
 
                         // Start and end node names/IDs - use index since Name might not be available
-                        string startNodeName = $"Node_{startNodeIdx}";
-                        string endNodeName = $"Node_{endNodeIdx}";
+                        string startNodeName = $"{startNodeIdx}";
+                        string endNodeName = $"{endNodeIdx}";
 
                         // Prepare list of positions to query (Start, Splice if exists and valid, End)
                         var positions = new List<(string LocationName, double PositionMm)>()
