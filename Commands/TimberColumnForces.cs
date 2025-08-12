@@ -78,9 +78,9 @@ namespace TeklaResultsInterrogator.Commands
             List<ColumnLifts> timberColumnLifts = new List<ColumnLifts>();
             foreach (IMember column in timberColumns)
             {
-                ColumnLifts lifts = new ColumnLifts(column);
-                await lifts.OrganizeByFixity();
-                timberColumnLifts.Add(lifts);
+                //ColumnLifts lifts = new ColumnLifts(column, cxlFilePath);
+                ////await lifts.OrganizeByFixity();
+                //timberColumnLifts.Add(lifts);
             }
             double endStack = Math.Round(stopwatch.Elapsed.TotalSeconds, 3);
             Console.WriteLine($"Column stacks organized in {Math.Round(endStack - startStack, 3)} seconds.\n");
