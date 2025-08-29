@@ -42,7 +42,29 @@ namespace TeklaResultsInterrogator.Commands
             // Member Data
             FancyWriteLine("\nMember summary:", TextColor.Title);
             Console.WriteLine("Unpacking member data...");
-            var steelColumns = AllMembers!.Where(c => RequestedMemberType.Contains(GetProperty(c.Data.Value.Construction))).ToList();
+            
+            List<IMember> steelColumns = new List<IMember>();
+
+            // Filtering for Gravity Only and Autodesign
+            bool? GravityOnlyState = AskGravityOnly();
+            bool? AutoDesignState = AskAutoDesign();
+            if (GravityOnlyState == null & AutoDesignState == null)
+            {
+                steelColumns = AllMembers!.Where(c => RequestedMemberType.Contains(GetProperty(c.Data.Value.Construction))).ToList();
+            }
+            else if (AutoDesignState == null)
+            {
+                steelColumns = AllMembers!.Where(c => RequestedMemberType.Contains(GetProperty(c.Data.Value.Construction)) & GetProperty(c.Data.Value.GravityOnly) == GravityOnlyState).ToList();
+            }
+            else if (GravityOnlyState == null)
+            {
+                steelColumns = AllMembers!.Where(c => RequestedMemberType.Contains(GetProperty(c.Data.Value.Construction)) & GetProperty(c.Data.Value.AutoDesign) == AutoDesignState).ToList();
+            }
+            else
+            {
+                steelColumns = AllMembers!.Where(c => RequestedMemberType.Contains(GetProperty(c.Data.Value.Construction)) & GetProperty(c.Data.Value.AutoDesign) == AutoDesignState & GetProperty(c.Data.Value.GravityOnly) == GravityOnlyState).ToList();
+            };
+
             string filterField = AskUser("What UDA field to filter on?");
             string filterValue = AskUser("What UDA value to filter on?");
             Console.WriteLine($"{AllMembers.Count} structural members found in model.");
