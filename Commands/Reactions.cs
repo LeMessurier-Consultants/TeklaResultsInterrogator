@@ -56,7 +56,7 @@ namespace TeklaResultsInterrogator.Commands
 
                 List<object[]> reactions = new List<object[]>();
 
-                foreach (ILoadcase loadcase in loadingCases)
+                foreach (ILoadingCase loadcase in loadingCases)
                 {
                     foreach (INode support in allSupports)
                     {
