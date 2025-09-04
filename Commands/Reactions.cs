@@ -40,39 +40,68 @@ namespace TeklaResultsInterrogator.Commands
             await InitializeAsync();
 
             IEnumerable<INode> Nodes = await SolverModel.GetNodesAsync(null);
-            List<INode> allSupports = Nodes.Where(x => x.HasSupport(SupportType.Structure3D)).ToList();
+            //List<INode> PointSupports = Nodes.Where(x => x.HasSupport(SupportType.Structure3D)).ToList();
+            //List<INode> WallSupports = Nodes.Where(x => x.IsSupporting == true).ToList();
+            List<INode> allSupports = new List<INode>();
+
+            foreach (INode node in Nodes) {
+
+                ISupportData? supportData = node.GetSupportDataAsync().Result;
+
+                if (supportData != null)
+                {
+                    allSupports.Add(node);
+                }
+
+            }
+           
             List<ILoadingCase> loadingCases = AskLoading(SolvedCases, SolvedCombinations, SolvedEnvelopes);
 
-            List<int> mysupportIDs = new List<int>();
+            //List<int> mysupportIDs = new List<int>();
 
-            foreach (INode support in allSupports) {
-                mysupportIDs.Add(support.Index);
-            }
+            List<object[]> reactions = new List<object[]>();
+
+            //foreach (INode support in allSupports) {
+            //    mysupportIDs.Add(support.Index);
+            //}
 
             IEnumerable < IConstructionPoint > constructionPoints = await Model.GetConstructionPointsAsync(null);
-            List < IConstructionPoint > constructionPointsList = constructionPoints.Where(pt=>mysupportIDs.Contains(pt.SolverNodeIndex.Value)).ToList();
-
-            //foreach (IConstructionPoint constructionPoint in constructionPointsList) {
-
-                List<object[]> reactions = new List<object[]>();
-
-                foreach (ILoadcase loadcase in loadingCases)
+            
+                foreach (ILoadingCase loading in loadingCases)
                 {
+                    
+
                     foreach (INode support in allSupports)
                     {
-                        IForce3DGlobal reaction = await support.GetSupportReactionAsync(loadcase.Id, false);
-                        IConstructionPoint my_point = constructionPoints.Where(pt => pt.SolverNodeIndex.Value.Equals(support.Index)).First();
-                        object[] support_reactions = { support.Index, my_point.Name,
-                                                       mm2ft(support.Coordinates.X), mm2ft(support.Coordinates.Y), mm2ft(support.Coordinates.Z),
-                                                       loadcase.Name, ToK(reaction.Fx), ToK(reaction.Fy), ToK(reaction.Fz),
-                                                       ToKFt(reaction.Mx), ToKFt(reaction.My), ToKFt(reaction.Mz) };
+                        IForce3DGlobal reaction = await support.GetSupportReactionAsync(loading.Id, false);
+
+                        // Find construction point with matching SolverNodeIndex - Wall nodes do not have this
+                        IConstructionPoint? constructionPoint = constructionPoints.Where(pt => pt.SolverNodeIndex.Value.Equals(support.Index)).FirstOrDefault();
+                        
+                        // In the future, modify the supportName to include the wall name to which it belongs
+                        string supportName = constructionPoint != null ? constructionPoint.Name : "N/A";
+
+                        object[] support_reactions = { support.Index,
+                                                   supportName,
+                                                   mm2ft(support.Coordinates.X), 
+                                                   mm2ft(support.Coordinates.Y), 
+                                                   mm2ft(support.Coordinates.Z),
+                                                   loading.Name, 
+                                                   ToK(reaction.Fx), 
+                                                   ToK(reaction.Fy), 
+                                                   ToK(reaction.Fz),
+                                                   ToKFt(reaction.Mx), 
+                                                   ToKFt(reaction.My), 
+                                                   ToKFt(reaction.Mz) 
+                        };
                         reactions.Add(support_reactions);
                     }
-                }
-            //}
-                        
-            var header = new List<string>() {"SolverNodeId", "Support Name", "x","y","z","Loading", "Fx", "Fy", "Fz", "Mx", "My", "Mz"};
 
+
+                }
+                               
+            var header = new List<string>() {"SolverNodeId", "Support Name", "x","y","z","Loading", "Fx", "Fy", "Fz", "Mx", "My", "Mz"};
+          
             string file = SaveDirectory  + @"\Reactions_" + OutputFileName + ".csv";
 
             WriteToCsv(header, reactions, file);
