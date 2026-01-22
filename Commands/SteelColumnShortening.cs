@@ -17,10 +17,23 @@ using static TeklaResultsInterrogator.Utils.Utils;
 namespace TeklaResultsInterrogator.Commands
 {
     /// <summary>
-    /// Simplified command to generate a summary of steel columns with basic lift information.
+    /// Command to calculate steel column shortening (PL/AE) with basic lift information.
+    /// 
+    /// UNIT SYSTEM:
+    /// - Forces: API value × ConversionFactor → kips
+    /// - Lengths: API returns mm → converted to inches for formula
+    /// - Areas: API always returns mm² → converted to in² for formula
+    /// - Modulus: Hard-coded 29,000 ksi (steel only)
+    /// 
+    /// Formula: Shortening (inches) = P(kips) × L(in) / [A(in²) × E(ksi)]
     /// </summary>
-    public class SteelColumnIntegrityForces : SolverInterrogator
+    public class SteelColumnShortening : SolverInterrogator
     {
+        private const double STEEL_MODULUS_E = 29000.0; // ksi - constant for all steel
+        private const double MM_TO_INCHES = 0.0393701;  // 1 mm = 0.0393701 inches
+        private const double MM2_TO_IN2 = 0.00155;      // 1 mm² = 0.00155 in²
+        private const double MM_TO_FEET = 0.00328084;   // 1 mm = 0.00328084 feet
+
         /// <summary>
         /// Determines if this command should be shown in the menu.
         /// </summary>
@@ -29,10 +42,20 @@ namespace TeklaResultsInterrogator.Commands
         /// <summary>
         /// Constructor sets up output and requested member type.
         /// </summary>
-        public SteelColumnIntegrityForces()
+        public SteelColumnShortening()
         {
             HasOutput = true;
             RequestedMemberType = new List<MemberConstruction>() { MemberConstruction.SteelColumn };
+        }
+
+        /// <summary>
+        /// Represents span-level shortening calculation details.
+        /// </summary>
+        private class SpanShorteningDetail
+        {
+            public double Force { get; set; }
+            public double LengthFt { get; set; }
+            public double Shortening { get; set; }
         }
 
         /// <summary>
@@ -237,84 +260,82 @@ namespace TeklaResultsInterrogator.Commands
         }
 
         /// <summary>
-        /// Calculates integrity forces for each lift using splice offsets.
+        /// Gets the cross-sectional area in square inches.
+        /// API always returns area in mm², so convert to in².
         /// </summary>
-        private async Task<Dictionary<string, double>> CalculateIntegrityForcesWithSpliceOffsets(
-            IMember member,
-            List<ColumnLift> lifts,
-            ILoadingCase integrityForceCase,
-            bool reduced,
-            ColumnSpansSteel columnSpans)
+        private async Task<double> GetCrossSectionalArea(ColumnLift lift)
         {
-            var integrityForces = new Dictionary<string, double>();
-            if (lifts.Count <= 1)
-            {
-                return integrityForces;
-            }
-
             try
             {
-                IMemberLoading memberLoading = await member.GetLoadingAsync(integrityForceCase.Id, RequestedAnalysisType, LoadingResultType.Base);
-                double valCon = ConversionFactor(LoadingValueType.Force);
-
-                integrityForces[lifts[0].Name] = 0.0;
-
-                double startNodeForce = await GetForceAtLiftStart(memberLoading, lifts[0], reduced) * valCon;
-
-                var spliceForces = new List<double>();
-                foreach (var lift in lifts)
+                var firstSpan = lift.Spans.First();
+                if (firstSpan.ElementSection.Value is IMemberSection elementSection)
                 {
-                    foreach (var span in lift.Spans)
+                    if (elementSection.PhysicalSection.Value is ISection physicalSection)
                     {
-                        if (columnSpans.SpanSpliceInfo.ContainsKey(span.Index) &&
-                            columnSpans.SpanSpliceInfo[span.Index].HasSplice)
-                        {
-                            double spliceOffset = columnSpans.SpanSpliceInfo[span.Index].SpliceOffset;
-                            double spliceForce = await GetLoadingValueAtPosition(
-                                memberLoading,
-                                LoadingValueType.Force,
-                                LoadingDirection.Axial,
-                                spliceOffset,
-                                reduced,
-                                span.Index) * valCon;
-                            spliceForces.Add(spliceForce);
-                        }
-                    }
-                }
+                        // API returns area in mm², convert to in²
+                        double areaMm2 = physicalSection.CrossSectionalArea;
+                        double areaIn2 = areaMm2 * MM2_TO_IN2;
 
-                for (int i = 1; i < lifts.Count; i++)
-                {
-                    if (i == 1 && spliceForces.Count > 0)
-                    {
-                        integrityForces[lifts[i].Name] = startNodeForce - spliceForces[0];
-                    }
-                    else if (i - 1 < spliceForces.Count && i - 2 >= 0 && i - 2 < spliceForces.Count)
-                    {
-                        integrityForces[lifts[i].Name] = spliceForces[i - 2] - spliceForces[i - 1];
-                    }
-                    else
-                    {
-                        integrityForces[lifts[i].Name] = 0.0;
+                        return areaIn2 > 0 ? areaIn2 : 0.0;
                     }
                 }
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error calculating integrity forces with splice offsets: {ex.Message}");
-                foreach (var lift in lifts)
-                {
-                    integrityForces[lift.Name] = 0.0;
-                }
+                Console.WriteLine($"Warning: Error getting cross-sectional area for lift {lift.Name}: {ex.Message}");
             }
 
-            return integrityForces;
+            return 0.0;
         }
 
-        private async Task<double> GetForceAtLiftStart(IMemberLoading memberLoading, ColumnLift lift, bool reduced)
+        /// <summary>
+        /// Calculates total column shortening for a lift by summing shortening of each span.
+        /// Gets force at start of each span and calculates individual span shortening.
+        /// Returns total shortening and details for each span.
+        /// </summary>
+        private async Task<(double TotalShortening, List<SpanShorteningDetail> SpanDetails)> CalculateLiftShorteningWithDetails(IMember member, ColumnLift lift, ILoadingCase loadingCase, bool reduced, double area)
         {
-            var firstSpan = lift.Spans.First();
-            double position = 0.0;
-            return await GetLoadingValueAtPosition(memberLoading, LoadingValueType.Force, LoadingDirection.Axial, position, reduced, firstSpan.Index);
+            var spanDetails = new List<SpanShorteningDetail>();
+            if (area <= 0) return (0.0, spanDetails);
+
+            try
+            {
+                IMemberLoading memberLoading = await member.GetLoadingAsync(loadingCase.Id, RequestedAnalysisType, LoadingResultType.Base);
+                double valCon = ConversionFactor(LoadingValueType.Force);
+
+                double totalShortening = 0.0;
+
+                // Calculate shortening for each span in the lift
+                foreach (var span in lift.Spans)
+                {
+                    // Get force at start of span (force entering this span)
+                    double spanForce = await GetLoadingValueAtPosition(
+                        memberLoading, LoadingValueType.Force, LoadingDirection.Axial, 0.0, reduced, span.Index) * valCon;
+
+                    // Convert span length from mm to inches and feet
+                    double spanLengthInches = span.Length.Value * MM_TO_INCHES;
+                    double spanLengthFt = span.Length.Value * MM_TO_FEET;
+
+                    // Calculate shortening for this span: (P × L) / (A × E)
+                    double spanShortening = (Math.Abs(spanForce) * spanLengthInches) / (area * STEEL_MODULUS_E);
+
+                    spanDetails.Add(new SpanShorteningDetail
+                    {
+                        Force = Math.Abs(spanForce),
+                        LengthFt = spanLengthFt,
+                        Shortening = spanShortening
+                    });
+
+                    totalShortening += spanShortening;
+                }
+
+                return (totalShortening, spanDetails);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Warning: Error calculating span-by-span shortening for lift {lift.Name}: {ex.Message}");
+                return (0.0, spanDetails);
+            }
         }
 
         private static async Task<double> GetLoadingValueAtPosition(
@@ -327,7 +348,7 @@ namespace TeklaResultsInterrogator.Commands
         {
             var option = LoadingValueOptions.StaticValue(valueType, direction, reduced);
             IEnumerable<ILoadingValue> values = await loading.GetValueAsync(option, spanIndex, positionMm);
-            values = values.OrderByDescending(lv => lv.Value);
+            values = values.OrderByDescending(lv => Math.Abs(lv.Value));
 
             if (values.Any())
                 return values.First().Value;
@@ -376,23 +397,63 @@ namespace TeklaResultsInterrogator.Commands
                 steelColumnSpans.Add(colSpans);
             }
 
+            // Find maximum number of spans across all lifts to determine column count
+            int maxSpanCount = 0;
+            foreach (var columnSpans in steelColumnSpans)
+            {
+                var lifts = columnSpans.CreateLifts();
+                foreach (var lift in lifts)
+                {
+                    maxSpanCount = Math.Max(maxSpanCount, lift.Spans.Count);
+                }
+            }
+
             // Prepare output CSV file
-            string file1 = SaveDirectory + @"SteelColumnIntegrityForces_" + OutputFileName + ".csv";
-            string header1 = "Tekla GUID,Part Mark,UDA Filter,Member Name,Lift Name,Start Level,End Level,Shape,Material," +
-                           "Start Node,X_StartNode,Y_StartNode,Z_StartNode," +
-                           "End Node,X_EndNode,Y_EndNode,Z_EndNode," +
-                           "Lift Length [ft],Integrity Force [k]\n";
+            string file1 = SaveDirectory + @"SteelColumnShortening_" + OutputFileName + ".csv";
 
-            File.WriteAllText(file1, "");
-            File.AppendAllText(file1, header1);
+            // Build dynamic header with span columns based on actual max spans found
+            var headerParts = new List<string>
+            {
+                "Tekla GUID",
+                "Part Mark",
+                "UDA Filter",
+                "Member Name",
+                "Lift Name",
+                "Start Level",
+                "End Level",
+                "Shape",
+                "Material",
+                "Start Node",
+                "X_StartNode",
+                "Y_StartNode",
+                "Z_StartNode",
+                "End Node",
+                "X_EndNode",
+                "Y_EndNode",
+                "Z_EndNode",
+                "Lift Length [ft]",
+                "Cross Section Area [in²]",
+                "Shortening [in]"
+            };
 
-            FancyWriteLine("Writing Integrity Forces...", TextColor.Title);
+            // Add span columns based on actual max spans in model
+            for (int i = 1; i <= maxSpanCount; i++)
+            {
+                headerParts.Add($"Force[k] Span {i}");
+                headerParts.Add($"Length[ft] Span {i}");
+                headerParts.Add($"Shortening[in] Span {i}");
+            }
+
+            string header1 = string.Join(",", headerParts) + "\n";
+
+            File.WriteAllText(file1, header1);
+
+            FancyWriteLine("Calculating Column Shortening...", TextColor.Title);
 
             using (StreamWriter sw1 = new StreamWriter(file1, true, Encoding.UTF8, bufferSize))
             {
-                var integrityForceCase = loadingCases.FirstOrDefault(lc =>
-                    lc.Name.Equals("Integrity Force", StringComparison.CurrentCultureIgnoreCase) ||
-                    lc.Name.Contains("Integrity", StringComparison.CurrentCultureIgnoreCase));
+                // Use the first loading case for shortening calculations
+                var loadingCase = loadingCases.First();
 
                 foreach (var columnSpans in steelColumnSpans)
                 {
@@ -400,14 +461,10 @@ namespace TeklaResultsInterrogator.Commands
                     string memberName = member.Name;
                     var lifts = columnSpans.CreateLifts();
 
-                    var integrityForces = new Dictionary<string, double>();
-                    if (integrityForceCase != null && columnSpans.HasSplice)
+                    for (int liftIndex = 0; liftIndex < lifts.Count; liftIndex++)
                     {
-                        integrityForces = await CalculateIntegrityForcesWithSpliceOffsets(member, lifts, integrityForceCase, reduced, columnSpans);
-                    }
+                        var lift = lifts[liftIndex];
 
-                    foreach (var lift in lifts)
-                    {
                         var firstSpanforID = lift.Spans.First();
                         Guid id = firstSpanforID.Id;
                         string partMark = lifts.Count == 1 ? member.Name : firstSpanforID.Name;
@@ -416,9 +473,9 @@ namespace TeklaResultsInterrogator.Commands
                         int startNodeIdx = lift.StartNode.ConstructionPointIndex.Value;
                         var startPoints = await Model.GetConstructionPointsAsync(new List<int> { startNodeIdx });
                         var startPoint = startPoints.First();
-                        double startX = startPoint.Coordinates.Value.X * 0.00328084;
-                        double startY = startPoint.Coordinates.Value.Y * 0.00328084;
-                        double startZ = startPoint.Coordinates.Value.Z * 0.00328084;
+                        double startX = startPoint.Coordinates.Value.X * MM_TO_FEET;
+                        double startY = startPoint.Coordinates.Value.Y * MM_TO_FEET;
+                        double startZ = startPoint.Coordinates.Value.Z * MM_TO_FEET;
 
                         var startPlaneIds = startPoints
                             .Where(p => p.PlaneInfo.Value.Type == TSD.API.Remoting.Common.EntityType.HorizontalConstructionPlane)
@@ -430,9 +487,9 @@ namespace TeklaResultsInterrogator.Commands
                         int endNodeIdx = lift.EndNode.ConstructionPointIndex.Value;
                         var endPoints = await Model.GetConstructionPointsAsync(new List<int> { endNodeIdx });
                         var endPoint = endPoints.First();
-                        double endX = endPoint.Coordinates.Value.X * 0.00328084;
-                        double endY = endPoint.Coordinates.Value.Y * 0.00328084;
-                        double endZ = endPoint.Coordinates.Value.Z * 0.00328084;
+                        double endX = endPoint.Coordinates.Value.X * MM_TO_FEET;
+                        double endY = endPoint.Coordinates.Value.Y * MM_TO_FEET;
+                        double endZ = endPoint.Coordinates.Value.Z * MM_TO_FEET;
 
                         var endPlaneIds = endPoints
                             .Where(p => p.PlaneInfo.Value.Type == TSD.API.Remoting.Common.EntityType.HorizontalConstructionPlane)
@@ -456,7 +513,7 @@ namespace TeklaResultsInterrogator.Commands
                             materialName = firstSpan.Material.Value.Name;
                         }
 
-                        double lengthFt = lift.Length * 0.00328084;
+                        double lengthFt = lift.Length * MM_TO_FEET;
                         string startNodeName = $"{startNodeIdx}";
                         string endNodeName = $"{endNodeIdx}";
 
@@ -470,17 +527,30 @@ namespace TeklaResultsInterrogator.Commands
                             if (!match) continue;
                         }
 
-                        double integrityForce = 0.0;
-                        if (integrityForceCase != null && integrityForces.ContainsKey(lift.Name))
-                        {
-                            integrityForce = -1*integrityForces[lift.Name];
-                        }
+                        // Calculate shortening with correct force logic
+                        double area = await GetCrossSectionalArea(lift);
+                        var (shortening, spanDetails) = await CalculateLiftShorteningWithDetails(member, lift, loadingCase, reduced, area);
 
-                        // Write CSV line for this lift
+                        // Build base line with lift data
                         string line = $"{EscapeCsvValue(id.ToString())},{EscapeCsvValue(partMark)},{EscapeCsvValue(filterValue)},{EscapeCsvValue(memberName)},{EscapeCsvValue(lift.Name)},{EscapeCsvValue(startLevelName)},{EscapeCsvValue(endLevelName)},{EscapeCsvValue(sectionName)},{EscapeCsvValue(materialName)}," +
-                                    $"{EscapeCsvValue(startNodeName)},{startX:F3},{startY:F3},{startZ:F3}," +
-                                    $"{EscapeCsvValue(endNodeName)},{endX:F3},{endY:F3},{endZ:F3}," +
-                                    $"{lengthFt:F3},{integrityForce}";
+                                      $"{EscapeCsvValue(startNodeName)},{startX:F3},{startY:F3},{startZ:F3}," +
+                                      $"{EscapeCsvValue(endNodeName)},{endX:F3},{endY:F3},{endZ:F3}," +
+                                      $"{lengthFt:F3},{area:F3},{shortening:F4}";
+
+                        // Add span data columns
+                        for (int spanIdx = 0; spanIdx < maxSpanCount; spanIdx++)
+                        {
+                            if (spanIdx < spanDetails.Count)
+                            {
+                                var span = spanDetails[spanIdx];
+                                line += $",{span.Force:F1},{span.LengthFt:F2},{span.Shortening:F4}";
+                            }
+                            else
+                            {
+                                // No data for this span, add zeros
+                                line += ",0,0,0";
+                            }
+                        }
 
                         sw1.WriteLine(line);
                     }

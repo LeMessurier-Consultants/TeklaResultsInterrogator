@@ -16,7 +16,7 @@
 
   <ItemGroup>
     <PackageReference Include="MathNet.Numerics" Version="5.0.0" />
-    <PackageReference Include="TeklaStructuralDesigner.RemotingAPI" Version="24.3.0" />
+    <PackageReference Include="TeklaStructuralDesigner.RemotingAPI" Version="25.3.0" />
   </ItemGroup>
 
   <ItemGroup>

@@ -52,7 +52,7 @@ namespace TeklaResultsInterrogator.Commands
             public async Task OrganizeSpansAsync()
             {
                 var spans = (await ParentMember.GetSpanAsync())
-                    .OrderBy(s => s.Index)
+                    //.OrderBy(s => s.Index)
                     .ToList();
 
                 HasSplice = false;
@@ -478,6 +478,11 @@ namespace TeklaResultsInterrogator.Commands
             double timeUnpack = Math.Round(stopwatch.Elapsed.TotalSeconds, 3);
             Console.WriteLine($"Loading and member data unpacked in {timeUnpack} seconds.\n");
 
+            // Run detailed diagnostics FIRST before organizing columns
+            //FancyWriteLine("Running Section Diagnostics...", TextColor.Title);
+            //await RunDetailedSectionDiagnosticsAsync(steelColumns);
+            //Console.WriteLine();
+
             // Organize Column Lifts
             FancyWriteLine("Organizing Column Lifts...", TextColor.Title);
             var steelColumnSpans = new List<ColumnSpansSteel>();
@@ -494,11 +499,11 @@ namespace TeklaResultsInterrogator.Commands
             // Prepare output CSV file
             string file1 = SaveDirectory + @"SteelColumnEnvelopes_" + OutputFileName + ".csv";
             string header1 = "Tekla GUID,Part Mark,UDA Filter,Member Name,Lift Name,Start Level,End Level,Shape,Material," +
-                             "Start Node,Start Node Fixity,X_StartNode,Y_StartNode,Z_StartNode," +
-                             "End Node,End Node Fixity,X_EndNode,Y_EndNode,Z_EndNode," +
-                             "Lift Length [ft],Span Rotation [deg],Loading Name," +
-                             "Column Axial Max [k],Column Axial Min [k],Column Major Moment Max [k-ft]," +
-                             "Column Major Shear Max [k],Column Minor Moment Max [k-ft],Column Minor Shear Max [k]\n";
+                 "Start Node,Start Node Fixity,X_StartNode,Y_StartNode,Z_StartNode," +
+                 "End Node,End Node Fixity,X_EndNode,Y_EndNode,Z_EndNode," +
+                 "Lift Length [ft],Span Rotation [deg],Loading Name," +
+                 "Column Axial Max [k],Column Axial Min [k],Column Major Moment Max [k-ft]," +
+                 "Column Major Shear Max [k],Column Minor Moment Max [k-ft],Column Minor Shear Max [k]\n";
 
             File.WriteAllText(file1, header1);
 
@@ -562,12 +567,50 @@ namespace TeklaResultsInterrogator.Commands
                         // Get section and material
                         string sectionName = "Unknown";
                         string materialName = "Unknown";
+                        double areaInSq = 0.0;
 
                         if (firstSpan.ElementSection.Value != null)
                         {
                             var elementSection = (IMemberSection)firstSpan.ElementSection.Value;
                             var physicalSection = (ISection)elementSection.PhysicalSection.Value;
                             sectionName = physicalSection.LongName;
+
+                            // Try to get area from section properties
+                            try
+                            {
+                                var sectionType = physicalSection.GetType();
+
+                                // Check for common area properties
+                                var areaProperty = sectionType.GetProperty("Area") ??
+                                                  sectionType.GetProperty("CrossSectionalArea") ??
+                                                  sectionType.GetProperty("GrossArea");
+
+                                if (areaProperty != null)
+                                {
+                                    var areaValue = areaProperty.GetValue(physicalSection);
+                                    if (areaValue != null)
+                                    {
+                                        // Handle both direct values and wrapped values
+                                        if (areaValue is double directArea)
+                                        {
+                                            areaInSq = directArea * 0.00155; // Convert mm² to in²
+                                        }
+                                        else if (areaValue.GetType().GetProperty("Value") != null)
+                                        {
+                                            var wrappedValue = areaValue.GetType().GetProperty("Value").GetValue(areaValue);
+                                            if (wrappedValue is double wrappedArea)
+                                            {
+                                                areaInSq = wrappedArea * 0.00155; // Convert mm² to in²
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                Console.WriteLine($"Warning: Could not retrieve area for section {sectionName}: {ex.Message}");
+                                areaInSq = 0.0;
+                            }
                         }
 
                         if (firstSpan.Material?.Value != null)
@@ -599,10 +642,10 @@ namespace TeklaResultsInterrogator.Commands
 
                             // Write row
                             string line = $"{EscapeCsvValue(id.ToString())},{EscapeCsvValue(partMark)},{EscapeCsvValue(filterValue)},{EscapeCsvValue(memberName)},{EscapeCsvValue(lift.Name)},{EscapeCsvValue(startLevelName)},{EscapeCsvValue(endLevelName)},{EscapeCsvValue(sectionName)},{EscapeCsvValue(materialName)}," +
-                                          $"{EscapeCsvValue(startNodeName)},{EscapeCsvValue(startNodeFixity)},{startX:F3},{startY:F3},{startZ:F3}," +
-                                          $"{EscapeCsvValue(endNodeName)},{EscapeCsvValue(endNodeFixity)},{endX:F3},{endY:F3},{endZ:F3}," +
-                                          $"{lengthFt:F3},{rotationDeg:F3},{EscapeCsvValue(loadingCase.Name)}," +
-                                          $"{axialMax},{axialMin},{majorMomentMax},{majorShearMax},{minorMomentMax},{minorShearMax}";
+              $"{EscapeCsvValue(startNodeName)},{EscapeCsvValue(startNodeFixity)},{startX:F3},{startY:F3},{startZ:F3}," +
+              $"{EscapeCsvValue(endNodeName)},{EscapeCsvValue(endNodeFixity)},{endX:F3},{endY:F3},{endZ:F3}," +
+              $"{lengthFt:F3},{rotationDeg:F3},{EscapeCsvValue(loadingCase.Name)}," +
+              $"{axialMax},{axialMin},{majorMomentMax},{majorShearMax},{minorMomentMax},{minorShearMax}";
 
                             sw1.WriteLine(line);
                         }
@@ -617,6 +660,164 @@ namespace TeklaResultsInterrogator.Commands
             stopwatch.Stop();
             ExecutionTime = stopwatch.Elapsed.TotalSeconds;
             Check();
+        }
+
+        /// <summary>
+        /// Runs detailed section diagnostics and saves to CSV in the Tekla model directory.
+        /// Produces one row per span and includes aggregated member/span context plus any exceptions.
+        /// Columns:
+        /// MemberName,MemberId,HasSpans,SpanCount,SpanIndices,SpanIndex,SpanName,
+        /// ElementSectionPresent,ElementSectionType,PhysicalSectionPresent,PhysicalSectionType,
+        /// SectionLongName,AvailableProperties,Exception
+        /// </summary>
+        private async Task RunDetailedSectionDiagnosticsAsync(IEnumerable<IMember> members)
+        {
+            string outFile = Path.Combine(SaveDirectory ?? Directory.GetCurrentDirectory(), "SectionDiagnostics_Detailed.csv");
+            using var sw = new StreamWriter(outFile, false, Encoding.UTF8);
+            sw.WriteLine("MemberName,MemberId,HasSpans,SpanCount,SpanIndices,SpanIndex,SpanName,ElementSectionPresent,ElementSectionType,PhysicalSectionPresent,PhysicalSectionType,SectionLongName,AvailableProperties,Exception");
+
+            foreach (var mem in members)
+            {
+                try
+                {
+                    IEnumerable<IMemberSpan>? spans = null;
+                    try
+                    {
+                        spans = await mem.GetSpanAsync();
+                    }
+                    catch (Exception gex)
+                    {
+                        // Member-level failure to get spans
+                        sw.WriteLine($"{EscapeCsvValue(mem.Name)},{mem.Id},FALSE,0,, , , , , , , ,{EscapeCsvValue(gex.Message)}");
+                        continue;
+                    }
+
+                    var spanList = spans?.ToList() ?? new List<IMemberSpan>();
+                    string spanIndicesAgg = spanList.Any() ? string.Join("|", spanList.Select(s => s.Index.ToString())) : "";
+
+                    if (!spanList.Any())
+                    {
+                        // Member has no spans (explicitly record)
+                        sw.WriteLine($"{EscapeCsvValue(mem.Name)},{mem.Id},FALSE,0,{EscapeCsvValue(spanIndicesAgg)},,,FALSE,,, , ,");
+                        continue;
+                    }
+
+                    // Produce one row per span with detailed probing
+                    foreach (var span in spanList)
+                    {
+                        string exceptionText = "";
+                        string spanName = "";
+                        try
+                        {
+                            spanName = span.Name ?? "";
+                        }
+                        catch (Exception snEx)
+                        {
+                            // reading span.Name may throw in some remoting edge-cases
+                            spanName = "";
+                            exceptionText += (exceptionText.Length > 0 ? " | " : "") + $"SpanNameReadFailed: {snEx.Message}";
+                        }
+
+                        string elementPresent = "FALSE";
+                        string elementType = "";
+                        string physicalPresent = "FALSE";
+                        string physicalType = "";
+                        string longName = "";
+                        string availableProps = "";
+
+                        try
+                        {
+                            var elemRef = span.ElementSection;
+                            if (elemRef != null)
+                            {
+                                object? elemVal = null;
+                                try
+                                {
+                                    // Accessing Value can throw server-side serialization exceptions for problematic sections
+                                    elemVal = elemRef.Value;
+                                }
+                                catch (Exception evEx)
+                                {
+                                    exceptionText += (exceptionText.Length > 0 ? " | " : "") + $"ElementSection.Value threw: {evEx.GetType().Name}: {evEx.Message}";
+                                }
+
+                                if (elemVal != null)
+                                {
+                                    elementPresent = "TRUE";
+                                    try
+                                    {
+                                        elementType = elemVal.GetType().Name;
+                                    }
+                                    catch { elementType = ""; }
+
+                                    try
+                                    {
+                                        var memSection = elemVal as IMemberSection;
+                                        object? physObj = null;
+                                        try
+                                        {
+                                            physObj = memSection?.PhysicalSection?.Value;
+                                        }
+                                        catch (Exception physEx)
+                                        {
+                                            exceptionText += (exceptionText.Length > 0 ? " | " : "") + $"PhysicalSection.Value threw: {physEx.GetType().Name}: {physEx.Message}";
+                                        }
+
+                                        if (physObj != null)
+                                        {
+                                            physicalPresent = "TRUE";
+                                            try
+                                            {
+                                                physicalType = physObj.GetType().Name;
+                                            }
+                                            catch { physicalType = ""; }
+
+                                            try
+                                            {
+                                                longName = (physObj as ISection)?.LongName ?? "";
+                                            }
+                                            catch (Exception lnEx)
+                                            {
+                                                exceptionText += (exceptionText.Length > 0 ? " | " : "") + $"LongNameReadFailed: {lnEx.Message}";
+                                            }
+
+                                            try
+                                            {
+                                                var props = physObj.GetType().GetProperties();
+                                                availableProps = string.Join(";", props.Select(p => p.Name));
+                                            }
+                                            catch (Exception propEx)
+                                            {
+                                                exceptionText += (exceptionText.Length > 0 ? " | " : "") + $"PropsReadFailed: {propEx.Message}";
+                                            }
+                                        }
+                                    }
+                                    catch (Exception innerEx)
+                                    {
+                                        exceptionText += (exceptionText.Length > 0 ? " | " : "") + $"MemberSectionProbeFailed: {innerEx.Message}";
+                                    }
+                                }
+                            }
+                        }
+                        catch (Exception topEx)
+                        {
+                            exceptionText += (exceptionText.Length > 0 ? " | " : "") + topEx.Message;
+                        }
+
+                        sw.WriteLine(
+                            $"{EscapeCsvValue(mem.Name)},{mem.Id},TRUE,{spanList.Count},{EscapeCsvValue(spanIndicesAgg)},{span.Index},{EscapeCsvValue(spanName)},{elementPresent},{EscapeCsvValue(elementType)},{physicalPresent},{EscapeCsvValue(physicalType)},{EscapeCsvValue(longName)},{EscapeCsvValue(availableProps)},{EscapeCsvValue(exceptionText)}"
+                        );
+                    }
+                }
+                catch (Exception ex)
+                {
+                    // Unexpected per-member failure
+                    sw.WriteLine($"{EscapeCsvValue(mem.Name)},{mem.Id},FALSE,0,, , , , , , , ,{EscapeCsvValue(ex.Message)}");
+                }
+            }
+
+            sw.Flush();
+            Console.WriteLine($"Section diagnostics written to: {outFile}\n");
         }
     }
 }
