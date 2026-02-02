@@ -129,10 +129,22 @@ namespace TeklaResultsInterrogator.Commands
                  "Column Major Shear Max [k],Column Minor Moment Max [k-ft],Column Minor Shear Max [k]\n";
             File.WriteAllText(file1, header1);
 
+            using SemaphoreSlim semaphore = new SemaphoreSlim(8); // Limit concurrency to 8 columns at a time
             var tasks = new List<Task<List<string>>>();
             foreach (var (col, colSpans, lifts) in columnData)
             {
-                tasks.Add(Task.Run(() => ProcessColumnAsync(col, lifts, loadingCases, RequestedAnalysisType, reduced, filterField, filterValue, levels, pointsDict)));
+                tasks.Add(Task.Run(async () =>
+                {
+                    await semaphore.WaitAsync();
+                    try
+                    {
+                        return await ProcessColumnAsync(col, lifts, loadingCases, RequestedAnalysisType, reduced, filterField, filterValue, levels, pointsDict);
+                    }
+                    finally
+                    {
+                        semaphore.Release();
+                    }
+                }));
             }
 
             var results = await Task.WhenAll(tasks);
@@ -252,8 +264,7 @@ namespace TeklaResultsInterrogator.Commands
                 foreach (var loadingCase in loadingCases)
                 {
                     // Get envelope forces 
-                    // Retry logic for GetLoadingAsync to handle potential gRPC connection drops
-                    IMemberLoading memberLoading = await ExecuteWithRetryAsync(() => member.GetLoadingAsync(loadingCase.Id, analysisType, LoadingResultType.Base));
+                    IMemberLoading memberLoading = await member.GetLoadingAsync(loadingCase.Id, analysisType, LoadingResultType.Base);
 
                     // Get envelope forces 
                     var axialTask = GetMinMaxForceInLift(memberLoading, LoadingValueType.Force, LoadingDirection.Axial, lift, reduced);
@@ -309,7 +320,7 @@ namespace TeklaResultsInterrogator.Commands
                         {
                             try
                             {
-                                var vals = await ExecuteWithRetryAsync(() => loading.GetValueAsync(option, span.Index, pos));
+                                var vals = await loading.GetValueAsync(option, span.Index, pos);
                                 if (vals.Any())
                                 {
                                     return (double?)Math.Abs(vals.MaxBy(v => Math.Abs(v.Value))?.Value ?? 0.0);
@@ -353,7 +364,7 @@ namespace TeklaResultsInterrogator.Commands
                         {
                             try
                             {
-                                var vals = await ExecuteWithRetryAsync(() => loading.GetValueAsync(option, span.Index, pos));
+                                var vals = await loading.GetValueAsync(option, span.Index, pos);
                                 if (vals.Any())
                                 {
                                     // Pick the value with largest magnitude
@@ -384,26 +395,6 @@ namespace TeklaResultsInterrogator.Commands
 
             double valCon = ConversionFactor(valueType);
             return (globalMax * valCon, globalMin * valCon);
-        }
-
-        /// <summary>
-        /// Executes a function with retry logic to handle transient exceptions (e.g. gRPC timeouts).
-        /// </summary>
-        private static async Task<T> ExecuteWithRetryAsync<T>(Func<Task<T>> action, int maxRetries = 3, int delayMs = 500)
-        {
-            for (int i = 0; i < maxRetries; i++)
-            {
-                try
-                {
-                    return await action();
-                }
-                catch (Exception)
-                {
-                    if (i == maxRetries - 1) throw; // Rethrow if last attempt fails
-                    await Task.Delay(delayMs * (i + 1)); // Linear backoff
-                }
-            }
-            return default!; // Should not be reached
         }
 
     }
