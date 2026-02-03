@@ -22,6 +22,22 @@ namespace TeklaResultsInterrogator.Commands
     /// </summary>
     public class SteelColumnEnvelopes : SolverInterrogator
     {
+        // --------------------------------------------------------------------------------------------------
+        // PERFORMANCE TUNING: Concurrency Control
+        // --------------------------------------------------------------------------------------------------
+        // 1. Memory Protection (The Pipe Size):
+        //    Limits how many columns we load/process simultaneously to prevent "Out of Memory".
+        //    Defaults to logical processor count (e.g. 8, 16, 20).
+        private static readonly int _maxDegreeOfParallelism = Environment.ProcessorCount;
+
+        // 2. Network/API Protection (The Funnel Tip):
+        //    Limits how many ACTIVE calls we send to the TSD API at once.
+        //    * Cap 500: Latency ~160ms. Risk of Congestion.
+        //    * Cap 100: Latency ~36ms.  Risk of "Context Switch Storm" on high-core machines.
+        //    * Cap 20:  Latency ~8ms.   Stable/Optimal on all machines. (Chosen Default).
+        private static readonly System.Threading.SemaphoreSlim _apiLimiter = new(20);
+        // --------------------------------------------------------------------------------------------------
+
         /// <inheritdoc/>
         public override bool ShowInMenu() => true;
 
@@ -129,25 +145,16 @@ namespace TeklaResultsInterrogator.Commands
                  "Column Major Shear Max [k],Column Minor Moment Max [k-ft],Column Minor Shear Max [k]\n";
             File.WriteAllText(file1, header1);
 
-            using SemaphoreSlim semaphore = new SemaphoreSlim(8); // Limit concurrency to 8 columns at a time
-            var tasks = new List<Task<List<string>>>();
-            foreach (var (col, colSpans, lifts) in columnData)
-            {
-                tasks.Add(Task.Run(async () =>
-                {
-                    await semaphore.WaitAsync();
-                    try
-                    {
-                        return await ProcessColumnAsync(col, lifts, loadingCases, RequestedAnalysisType, reduced, filterField, filterValue, levels, pointsDict);
-                    }
-                    finally
-                    {
-                        semaphore.Release();
-                    }
-                }));
-            }
+            var results = new System.Collections.Concurrent.ConcurrentBag<List<string>>();
+            // Use the centralized tuning parameter
+            var parallelOptions = new ParallelOptions { MaxDegreeOfParallelism = _maxDegreeOfParallelism };
 
-            var results = await Task.WhenAll(tasks);
+            await Parallel.ForEachAsync(columnData, parallelOptions, async (data, token) =>
+            {
+                var (col, colSpans, lifts) = data;
+                var colLines = await ProcessColumnAsync(col, lifts, loadingCases, RequestedAnalysisType, reduced, filterField, filterValue, levels, pointsDict);
+                results.Add(colLines);
+            });
             double endWatch = Math.Round(stopwatch.Elapsed.TotalSeconds, 3);
 
             FancyWriteLine("Writing steel Column forces table...", TextColor.Title);
@@ -172,6 +179,34 @@ namespace TeklaResultsInterrogator.Commands
             stopwatch.Stop();
             ExecutionTime = stopwatch.Elapsed.TotalSeconds;
             Check();
+
+            // Report Metrics
+            Console.WriteLine("\n--- API Diagnostics ---");
+            Console.WriteLine($"GetLoadingAsync: {ApiMetrics.LoadingCalls} calls, Avg: {(ApiMetrics.LoadingCalls > 0 ? ApiMetrics.LoadingDuration / ApiMetrics.LoadingCalls / 10000.0 : 0):F3} ms");
+            Console.WriteLine($"GetValueAsync:   {ApiMetrics.ValueCalls} calls, Avg: {(ApiMetrics.ValueCalls > 0 ? ApiMetrics.ValueDuration / ApiMetrics.ValueCalls / 10000.0 : 0):F3} ms");
+            Console.WriteLine($"Peak Concurrency (Points): {ApiMetrics.MaxConcurrency}");
+            Console.WriteLine("-----------------------\n");
+        }
+
+        private static class ApiMetrics
+        {
+            public static long LoadingCalls = 0;
+            public static long LoadingDuration = 0;
+            public static long ValueCalls = 0;
+            public static long ValueDuration = 0;
+            public static int ActiveValueCalls = 0;
+            public static int MaxConcurrency = 0;
+
+            public static void RecordConcurrency(int current)
+            {
+                int initial, computed;
+                do
+                {
+                    initial = MaxConcurrency;
+                    if (current <= initial) break;
+                    computed = current;
+                } while (System.Threading.Interlocked.CompareExchange(ref MaxConcurrency, computed, initial) != initial);
+            }
         }
 
         private static async Task<List<string>> ProcessColumnAsync(
@@ -264,7 +299,20 @@ namespace TeklaResultsInterrogator.Commands
                 foreach (var loadingCase in loadingCases)
                 {
                     // Get envelope forces 
-                    IMemberLoading memberLoading = await member.GetLoadingAsync(loadingCase.Id, analysisType, LoadingResultType.Base);
+                    await _apiLimiter.WaitAsync();
+                    IMemberLoading memberLoading;
+                    try
+                    {
+                        var swL = Stopwatch.StartNew();
+                        Interlocked.Increment(ref ApiMetrics.LoadingCalls);
+                        memberLoading = await member.GetLoadingAsync(loadingCase.Id, analysisType, LoadingResultType.Base);
+                        swL.Stop();
+                        Interlocked.Add(ref ApiMetrics.LoadingDuration, swL.ElapsedTicks);
+                    }
+                    finally
+                    {
+                        _apiLimiter.Release();
+                    }
 
                     // Get envelope forces 
                     var axialTask = GetMinMaxForceInLift(memberLoading, LoadingValueType.Force, LoadingDirection.Axial, lift, reduced);
@@ -303,41 +351,48 @@ namespace TeklaResultsInterrogator.Commands
             ColumnLift lift,
             bool reduced)
         {
-            var tasks = new List<Task<double>>();
+            var maxVal = 0.0;
             foreach (var span in lift.Spans)
             {
-                tasks.Add(Task.Run(async () =>
-                {
-                    int samplePoints = 10;
-                    double spanLength = span.Length.Value;
-                    var option = LoadingValueOptions.StaticValue(valueType, direction, reduced);
+                int samplePoints = 10;
+                double spanLength = span.Length.Value;
+                var option = LoadingValueOptions.StaticValue(valueType, direction, reduced);
 
-                    var pointTasks = new List<Task<double?>>();
-                    for (int i = 0; i <= samplePoints; i++)
+                for (int i = 0; i <= samplePoints; i++)
+                {
+                    double pos = (i * spanLength) / samplePoints;
+                    try
                     {
-                        double pos = (i * spanLength) / samplePoints;
-                        pointTasks.Add(Task.Run(async () =>
+                        await _apiLimiter.WaitAsync();
+                        try
                         {
-                            try
+                            int c = Interlocked.Increment(ref ApiMetrics.ActiveValueCalls);
+                            ApiMetrics.RecordConcurrency(c);
+                            var swV = Stopwatch.StartNew();
+                            Interlocked.Increment(ref ApiMetrics.ValueCalls);
+
+                            var vals = await loading.GetValueAsync(option, span.Index, pos);
+
+                            swV.Stop();
+                            Interlocked.Add(ref ApiMetrics.ValueDuration, swV.ElapsedTicks);
+                            Interlocked.Decrement(ref ApiMetrics.ActiveValueCalls);
+
+                            if (vals.Any())
                             {
-                                var vals = await loading.GetValueAsync(option, span.Index, pos);
-                                if (vals.Any())
-                                {
-                                    return (double?)Math.Abs(vals.MaxBy(v => Math.Abs(v.Value))?.Value ?? 0.0);
-                                }
+                                var v = Math.Abs(vals.MaxBy(v => Math.Abs(v.Value))?.Value ?? 0.0);
+                                if (v > maxVal) maxVal = v;
                             }
-                            catch { }
-                            return (double?)null;
-                        }));
+                        }
+                        finally
+                        {
+                            _apiLimiter.Release();
+                        }
                     }
-                    var results = await Task.WhenAll(pointTasks);
-                    return results.Where(r => r.HasValue).Select(r => r.GetValueOrDefault()).DefaultIfEmpty(0.0).Max();
-                }));
+                    catch { }
+                }
             }
 
-            var results = await Task.WhenAll(tasks);
-            // Result is already Abs Max
-            return results.DefaultIfEmpty(0.0).Max() * ConversionFactor(valueType);
+            return maxVal * ConversionFactor(valueType);
         }
 
         private static async Task<(double max, double min)> GetMinMaxForceInLift(
@@ -347,51 +402,56 @@ namespace TeklaResultsInterrogator.Commands
             ColumnLift lift,
             bool reduced)
         {
-            var tasks = new List<Task<(double max, double? min)>>();
+            double globalMax = 0.0;
+            double globalMin = 0.0;
+            bool first = true;
+
             foreach (var span in lift.Spans)
             {
-                tasks.Add(Task.Run(async () =>
+                int samplePoints = 10;
+                double spanLength = span.Length.Value;
+                var option = LoadingValueOptions.StaticValue(valueType, direction, reduced);
+
+                for (int i = 0; i <= samplePoints; i++)
                 {
-                    int samplePoints = 10;
-                    double spanLength = span.Length.Value;
-                    var option = LoadingValueOptions.StaticValue(valueType, direction, reduced);
-
-                    var pointTasks = new List<Task<double?>>();
-                    for (int i = 0; i <= samplePoints; i++)
+                    double pos = (i * spanLength) / samplePoints;
+                    try
                     {
-                        double pos = (i * spanLength) / samplePoints;
-                        pointTasks.Add(Task.Run(async () =>
+                        await _apiLimiter.WaitAsync();
+                        try
                         {
-                            try
+                            int c = Interlocked.Increment(ref ApiMetrics.ActiveValueCalls);
+                            ApiMetrics.RecordConcurrency(c);
+                            var swV = Stopwatch.StartNew();
+                            Interlocked.Increment(ref ApiMetrics.ValueCalls);
+
+                            var vals = await loading.GetValueAsync(option, span.Index, pos);
+
+                            swV.Stop();
+                            Interlocked.Add(ref ApiMetrics.ValueDuration, swV.ElapsedTicks);
+                            Interlocked.Decrement(ref ApiMetrics.ActiveValueCalls);
+
+                            if (vals.Any())
                             {
-                                var vals = await loading.GetValueAsync(option, span.Index, pos);
-                                if (vals.Any())
+                                // Pick the value with largest magnitude
+                                var v = vals.MaxBy(v => Math.Abs(v.Value))?.Value ?? 0.0;
+                                if (v > globalMax) globalMax = v;
+                                if (first || v < globalMin)
                                 {
-                                    // Pick the value with largest magnitude
-                                    return (double?)vals.MaxBy(v => Math.Abs(v.Value))?.Value;
+                                    globalMin = v;
+                                    first = false;
                                 }
+                                else if (v < globalMin) globalMin = v;
                             }
-                            catch { }
-                            return (double?)null;
-                        }));
+                        }
+                        finally
+                        {
+                            _apiLimiter.Release();
+                        }
                     }
-
-                    var results = await Task.WhenAll(pointTasks);
-                    var validValues = results.OfType<double>().ToList();
-
-                    if (validValues.Any())
-                    {
-                        double spanMax = validValues.Where(v => v > 0).DefaultIfEmpty(0.0).Max();
-                        double spanMin = validValues.Min();
-                        return (spanMax, (double?)spanMin);
-                    }
-                    return (0.0, (double?)null);
-                }));
+                    catch { }
+                }
             }
-
-            var results = await Task.WhenAll(tasks);
-            double globalMax = results.Select(r => r.max).DefaultIfEmpty(0.0).Max();
-            double globalMin = results.Select(r => r.min).OfType<double>().DefaultIfEmpty(0.0).Min();
 
             double valCon = ConversionFactor(valueType);
             return (globalMax * valCon, globalMin * valCon);
