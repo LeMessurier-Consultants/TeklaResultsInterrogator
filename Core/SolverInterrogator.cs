@@ -42,6 +42,21 @@ namespace TeklaResultsInterrogator.Core
         /// <summary>The list of member types to include in the query.</summary>
         protected List<MemberConstruction> RequestedMemberType = new();
 
+        // -----------------------------------------------------------------------------------------
+        // CONCURRENCY SETTINGS (Shared by all SolverInterrogator commands)
+        // -----------------------------------------------------------------------------------------
+        // MaxDegreeOfParallelism: Controls how many column/member tasks run concurrently.
+        // The 8x multiplier ensures a buffer of waiting tasks to fill API slots.
+        // This is a "soft cap" - the real limit is the _apiLimiter semaphore.
+        /// <summary>Maximum parallel tasks for outer loop processing.</summary>
+        protected static readonly int MaxDegreeOfParallelism = Environment.ProcessorCount * 8;
+
+        // ApiLimiter: Hard cap on concurrent TSD API calls to prevent server saturation.
+        // Value of 20 was empirically tuned to prevent RpcException errors.
+        /// <summary>Semaphore limiting concurrent TSD API calls.</summary>
+        protected static readonly System.Threading.SemaphoreSlim ApiLimiter = new(20);
+        // -----------------------------------------------------------------------------------------
+
         /// <summary>Initializes a new instance of the <see cref="SolverInterrogator"/> class.</summary>
         public SolverInterrogator() { }
 

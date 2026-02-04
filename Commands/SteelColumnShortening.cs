@@ -201,10 +201,14 @@ namespace TeklaResultsInterrogator.Commands
             var targetLoadingCase = loadingCases.First();
 
             // Phase 3: Calculate Shortening (Parallel)
-            List<Task<List<string>>> processTasks = new();
-            foreach (var (_, spans) in columnData)
+            var parallelOptions = new ParallelOptions { MaxDegreeOfParallelism = MaxDegreeOfParallelism };
+            var results = new System.Collections.Concurrent.ConcurrentBag<List<string>>();
+
+            using var progress = new ProgressBar(columnData.Count);
+            await Parallel.ForEachAsync(columnData, parallelOptions, async (item, token) =>
             {
-                processTasks.Add(Task.Run(() => ProcessColumnShorteningAsync(
+                var (_, spans) = item;
+                var colLines = await ProcessColumnShorteningAsync(
                     spans,
                     targetLoadingCase,
                     reduced,
@@ -212,10 +216,10 @@ namespace TeklaResultsInterrogator.Commands
                     filterValue,
                     levels,
                     maxSpanCount,
-                    pointsDict)));
-            }
-
-            var results = await Task.WhenAll(processTasks);
+                    pointsDict);
+                results.Add(colLines);
+                progress.Increment();
+            });
 
             using StreamWriter sw1 = new(file1, true, Encoding.UTF8, bufferSize);
             {

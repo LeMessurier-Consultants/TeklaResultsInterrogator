@@ -137,18 +137,19 @@ namespace TeklaResultsInterrogator.Commands
             FancyWriteLine("\nQuerying Steel Brace Forces (Parallel)...", TextColor.Title);
 
             // Prepare CSV
-            // Bug fix: The original code wrote an empty string first, then appended header. 
-            // We can just write the header.
             File.WriteAllText(file1, header1);
 
-            var tasks = new List<Task<List<string>>>();
+            var parallelOptions = new ParallelOptions { MaxDegreeOfParallelism = MaxDegreeOfParallelism };
+            var results = new System.Collections.Concurrent.ConcurrentBag<List<string>>();
 
-            foreach (var (member, spans) in braceData)
+            using var progress = new ProgressBar(braceData.Count);
+            await Parallel.ForEachAsync(braceData, parallelOptions, async (item, token) =>
             {
-                tasks.Add(Task.Run(() => ProcessMemberAsync(member, spans, loadingCases, reduced, RequestedAnalysisType, filterField, filterValue, pointsDict, levelsDict, grids, subdivisions)));
-            }
-
-            var results = await Task.WhenAll(tasks);
+                var (member, spans) = item;
+                var braceLines = await ProcessMemberAsync(member, spans, loadingCases, reduced, RequestedAnalysisType, filterField, filterValue, pointsDict, levelsDict, grids, subdivisions);
+                results.Add(braceLines);
+                progress.Increment();
+            });
 
             // Phase 4: Output
             FancyWriteLine("Writing internal forces table...", TextColor.Title);

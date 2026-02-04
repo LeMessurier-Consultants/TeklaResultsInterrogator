@@ -118,13 +118,16 @@ namespace TeklaResultsInterrogator.Commands
             File.WriteAllText(file1, "");
             File.AppendAllText(file1, header1);
 
-            var tasks = new List<Task<List<string>>>();
-            foreach (var lifts in liftData)
-            {
-                tasks.Add(Task.Run(() => ProcessTimberColumnAsync(lifts.ParentMember, lifts, loadingCases, reduced, filterField, filterValue, levels, pointsDict)));
-            }
+            var parallelOptions = new ParallelOptions { MaxDegreeOfParallelism = MaxDegreeOfParallelism };
+            var results = new System.Collections.Concurrent.ConcurrentBag<List<string>>();
 
-            var results = await Task.WhenAll(tasks);
+            using var progress = new ProgressBar(liftData.Count);
+            await Parallel.ForEachAsync(liftData, parallelOptions, async (lifts, token) =>
+            {
+                var colLines = await ProcessTimberColumnAsync(lifts.ParentMember, lifts, loadingCases, reduced, filterField, filterValue, levels, pointsDict);
+                results.Add(colLines);
+                progress.Increment();
+            });
             double endWatch = Math.Round(stopwatch.Elapsed.TotalSeconds, 3);
 
             // Writing Results

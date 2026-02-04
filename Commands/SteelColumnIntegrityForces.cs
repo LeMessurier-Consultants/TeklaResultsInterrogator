@@ -135,14 +135,18 @@ namespace TeklaResultsInterrogator.Commands
                     lc.Name.Contains("Integrity", StringComparison.CurrentCultureIgnoreCase));
 
             // Phase 3: Process Logic (Parallel)
-            var tasks = new List<Task<List<string>>>();
-            foreach (var (member, spans) in columnData)
-            {
-                tasks.Add(Task.Run(() => ProcessColumnAsync(
-                    member, spans, integrityForceCase, reduced, filterField, filterValue, levels, pointsDict)));
-            }
+            var parallelOptions = new ParallelOptions { MaxDegreeOfParallelism = MaxDegreeOfParallelism };
+            var results = new System.Collections.Concurrent.ConcurrentBag<List<string>>();
 
-            var results = await Task.WhenAll(tasks);
+            using var progress = new ProgressBar(columnData.Count);
+            await Parallel.ForEachAsync(columnData, parallelOptions, async (item, token) =>
+            {
+                var (member, spans) = item;
+                var colLines = await ProcessColumnAsync(
+                    member, spans, integrityForceCase, reduced, filterField, filterValue, levels, pointsDict);
+                results.Add(colLines);
+                progress.Increment();
+            });
 
             using (StreamWriter sw1 = new(file1, true, Encoding.UTF8, bufferSize))
             {

@@ -59,17 +59,23 @@ namespace TeklaResultsInterrogator.Commands
             // Recommended Pattern:
             // 1. Phase 1: Organize data & Collect indices (e.g. Construction Points)
             // 2. Phase 2: Batch Fetch geometry (e.g. GetConstructionPointsAsync)
-            // 3. Phase 3: Parallel Execution
-            //    // Option A: Task.WhenAll (Best for simple collections)
-            //    var tasks = new List<Task>();
-            //    foreach (var item in data) { tasks.Add(ProcessItemAsync(item, ...)); }
-            //    await Task.WhenAll(tasks);
+            // 3. Phase 3: Parallel Execution using inherited concurrency settings:
             //
-            //    // Option B: Parallel.ForEachAsync (.NET 6+) (Compact & Throttled)
-            //    await Parallel.ForEachAsync(data, async (item, token) => 
+            //    var parallelOptions = new ParallelOptions { MaxDegreeOfParallelism = MaxDegreeOfParallelism };
+            //    var results = new System.Collections.Concurrent.ConcurrentBag<List<string>>();
+            //
+            //    using var progress = new ProgressBar(data.Count);
+            //    await Parallel.ForEachAsync(data, parallelOptions, async (item, token) =>
             //    {
-            //        await ProcessItemAsync(item, ...);
+            //        var result = await ProcessItemAsync(item, ...);
+            //        results.Add(result);
+            //        progress.Increment();
             //    });
+            //
+            // NOTE: Inherited from SolverInterrogator:
+            // - MaxDegreeOfParallelism = ProcessorCount * 8 (soft cap for memory protection)
+            // - ApiLimiter = SemaphoreSlim(20) (hard cap for API stability)
+            // - ProgressBar is in TeklaResultsInterrogator.Utils
 
             // Finish up
             stopwatch.Stop();

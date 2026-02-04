@@ -135,16 +135,17 @@ namespace TeklaResultsInterrogator.Commands
             FancyWriteLine("\nQuerying Timber Beam Forces (Parallel)...", TextColor.Title);
 
             // Phase 3: Process Forces (Parallel)
-            var tasks = new List<Task<List<string>>>();
+            var parallelOptions = new ParallelOptions { MaxDegreeOfParallelism = MaxDegreeOfParallelism };
+            var results = new System.Collections.Concurrent.ConcurrentBag<List<string>>();
 
-
-
-            foreach (var (member, spans) in timberData)
+            using var progress = new ProgressBar(timberData.Count);
+            await Parallel.ForEachAsync(timberData, parallelOptions, async (item, token) =>
             {
-                tasks.Add(Task.Run(() => ProcessMemberAsync(member, spans, loadingCases, reduced, RequestedAnalysisType, filterField, filterValue, pointsDict, levelsDict)));
-            }
-
-            var results = await Task.WhenAll(tasks);
+                var (member, spans) = item;
+                var memberLines = await ProcessMemberAsync(member, spans, loadingCases, reduced, RequestedAnalysisType, filterField, filterValue, pointsDict, levelsDict);
+                results.Add(memberLines);
+                progress.Increment();
+            });
 
             // Phase 4: Output
             FancyWriteLine("Writing internal forces table...", TextColor.Title);

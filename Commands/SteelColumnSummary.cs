@@ -163,13 +163,17 @@ namespace TeklaResultsInterrogator.Commands
                     lc.Name.Contains("Integrity", StringComparison.CurrentCultureIgnoreCase));
 
             // Phase 3: Process Summary (Parallel)
-            var tasks = new List<Task<List<string>>>();
-            foreach (var (member, spans) in columnData)
-            {
-                tasks.Add(Task.Run(() => ProcessColumnAsync(member, spans, loadingCases, reduced, filterField, filterValue, levels, integrityForceCase, pointsDict)));
-            }
+            var parallelOptions = new ParallelOptions { MaxDegreeOfParallelism = MaxDegreeOfParallelism };
+            var results = new System.Collections.Concurrent.ConcurrentBag<List<string>>();
 
-            var results = await Task.WhenAll(tasks);
+            using var progress = new ProgressBar(columnData.Count);
+            await Parallel.ForEachAsync(columnData, parallelOptions, async (item, token) =>
+            {
+                var (member, spans) = item;
+                var colLines = await ProcessColumnAsync(member, spans, loadingCases, reduced, filterField, filterValue, levels, integrityForceCase, pointsDict);
+                results.Add(colLines);
+                progress.Increment();
+            });
             double endWatch = Math.Round(stopwatch.Elapsed.TotalSeconds, 3);
 
             FancyWriteLine("Writing Summary tables...", TextColor.Title);

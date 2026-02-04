@@ -185,7 +185,6 @@ namespace TeklaResultsInterrogator.Commands
             FancyWriteLine($"Asked for {subdivisions} points.", TextColor.Warning);
 
             // Setting up file
-            double start1 = timeUnpack;
             string file1 = SaveDirectory + @"SteelBeamForces_" + OutputFileName + ".csv";
             string header1 = String.Format("{0},{1},{2},{3},{4},{5},{6},{7},{8},{9},{10},{11},{12},{13},{14},{15},{16},{17},{18},{19},{20},{21}\n",
                 "Tekla GUID", "Member Name", "Level", "Shape", "Material", "Span Name",
@@ -197,19 +196,40 @@ namespace TeklaResultsInterrogator.Commands
             File.WriteAllText(file1, header1);
 
             List<string>[] completedTaskOutput;
-            List<Task<List<string>>> tasks = new();
-            foreach (IMember member in steelBeams)
+
+            // Build list of (member, span, levelName) tuples for parallel processing
+            FancyWriteLine("Collecting span data...", TextColor.Title);
+            var spanData = new List<(IMember member, IMemberSpan span, string levelName)>();
+            using (var collectProgress = new ProgressBar(steelBeams.Count))
             {
-                string levelName = GetMemberLevelNameAsync(member);
-                IEnumerable<IMemberSpan> spans = await member.GetSpanAsync(); //should not be long running so await 
-                foreach (IMemberSpan span in spans)
+                foreach (IMember member in steelBeams)
                 {
-                    tasks.Add(Task.Run(() => GetMemberSpanInfoAsync(levelName, member, span, subdivisions, loadingCases, reduced)));
+                    string levelName = GetMemberLevelNameAsync(member);
+                    IEnumerable<IMemberSpan> spans = await member.GetSpanAsync();
+                    foreach (IMemberSpan span in spans)
+                    {
+                        spanData.Add((member, span, levelName));
+                    }
+                    collectProgress.Increment();
                 }
             }
-            completedTaskOutput = await Task.WhenAll(tasks); //execute in parallel
+            FancyWriteLine("Processing forces...", TextColor.Title);
+
+            var parallelOptions = new ParallelOptions { MaxDegreeOfParallelism = MaxDegreeOfParallelism };
+            var results = new System.Collections.Concurrent.ConcurrentBag<List<string>>();
+
+            using var progress = new ProgressBar(spanData.Count);
+            await Parallel.ForEachAsync(spanData, parallelOptions, async (item, token) =>
+            {
+                var spanLines = await GetMemberSpanInfoAsync(item.levelName, item.member, item.span, subdivisions, loadingCases, reduced);
+                results.Add(spanLines);
+                progress.Increment();
+            });
+
+            completedTaskOutput = results.ToArray();
             // Getting internal forces and writing table
             FancyWriteLine("\nWriting internal forces table...", TextColor.Title);
+            double writeStart = stopwatch.Elapsed.TotalSeconds;
             using (StreamWriter sw1 = new(file1, true, Encoding.UTF8, bufferSize))
             {
                 //process output to streamwriter
@@ -226,8 +246,8 @@ namespace TeklaResultsInterrogator.Commands
             FancyWriteLine("Saved to: ", file1, "", TextColor.Path);
             double size1 = Math.Round((double)new FileInfo(file1).Length / 1024, 2);
             Console.WriteLine($"File size: {size1} KB");
-            double time1 = Math.Round(stopwatch.Elapsed.TotalSeconds - start1, 3);
-            Console.WriteLine($"Steel Beam table written in {time1} seconds.\n");
+            double writeTime = Math.Round(stopwatch.Elapsed.TotalSeconds - writeStart, 3);
+            Console.WriteLine($"Steel Beam table written in {writeTime} seconds.\n");
 
             // Finish up
             stopwatch.Stop();
