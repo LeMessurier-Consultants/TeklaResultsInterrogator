@@ -142,8 +142,13 @@ namespace TeklaResultsInterrogator.Commands
             var parallelOptions = new ParallelOptions { MaxDegreeOfParallelism = MaxDegreeOfParallelism };
             var results = new System.Collections.Concurrent.ConcurrentBag<List<string>>();
 
-            using var progress = new ProgressBar(braceData.Count);
-            await Parallel.ForEachAsync(braceData, parallelOptions, async (item, token) =>
+            // Convert and sort for smooth progress
+            var braceDataList = braceData.OrderBy(x => x.Member.Name).ToList();
+
+            ApiMetrics.Reset();
+
+            using var progress = new ProgressBar(braceDataList.Count);
+            await Parallel.ForEachAsync(braceDataList, parallelOptions, async (item, token) =>
             {
                 var (member, spans) = item;
                 var braceLines = await ProcessMemberAsync(member, spans, loadingCases, reduced, RequestedAnalysisType, filterField, filterValue, pointsDict, levelsDict, grids, subdivisions);
@@ -170,6 +175,17 @@ namespace TeklaResultsInterrogator.Commands
             Console.WriteLine($"File size: {size1} KB");
             double time1 = Math.Round(stopwatch.Elapsed.TotalSeconds - start1, 3);
             Console.WriteLine($"Steel Brace table written in {time1} seconds.\n");
+
+            // Report Metrics
+            Console.WriteLine("\n--- API Diagnostics ---");
+            Console.WriteLine($"GetLoadingAsync:     {ApiMetrics.LoadingCalls} calls, Avg: {(ApiMetrics.LoadingCalls > 0 ? (double)ApiMetrics.LoadingDuration / ApiMetrics.LoadingCalls / 10000.0 : 0):F3} ms");
+            Console.WriteLine($"GetValueAsync:       {ApiMetrics.ValueCalls} calls, Avg: {(ApiMetrics.ValueCalls > 0 ? (double)ApiMetrics.ValueDuration / ApiMetrics.ValueCalls / 10000.0 : 0):F3} ms");
+            Console.WriteLine($"Peak Concurrency:    {ApiMetrics.MaxConcurrency}");
+            if (ApiMetrics.SemaphoreWaitCalls > 0)
+            {
+                Console.WriteLine($"Semaphore Waits:     {ApiMetrics.SemaphoreWaitCalls} calls, Avg: {(double)ApiMetrics.SemaphoreWaitDuration / ApiMetrics.SemaphoreWaitCalls / 10000.0:F3} ms, Max: {ApiMetrics.SemaphoreWaitMax / 10000.0:F3} ms");
+            }
+            Console.WriteLine("-----------------------\n");
 
             // Finish up
             stopwatch.Stop();
@@ -203,7 +219,22 @@ namespace TeklaResultsInterrogator.Commands
 
             foreach (IMemberSpan span in spans)
             {
-                var udas = await span.GetUserDefinedAttributesAsync();
+                IEnumerable<IUserDefinedAttribute> udas;
+                var swWait = Stopwatch.StartNew();
+                await ApiLimiter.WaitAsync();
+                swWait.Stop();
+                ApiMetrics.RecordSemaphoreWait(swWait.ElapsedTicks);
+                var sw = Stopwatch.StartNew();
+                try
+                {
+                    udas = await span.GetUserDefinedAttributesAsync();
+                }
+                finally
+                {
+                    sw.Stop();
+                    ApiLimiter.Release();
+                }
+                // Note: We don't have a specific metric for UDA calls, but we track the wait time.
 
                 // if there isn't at least one uda matching filterValue, skip code below
                 if (!string.IsNullOrEmpty(filterValue))

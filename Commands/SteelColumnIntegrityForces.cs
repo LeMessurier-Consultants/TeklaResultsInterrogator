@@ -138,8 +138,13 @@ namespace TeklaResultsInterrogator.Commands
             var parallelOptions = new ParallelOptions { MaxDegreeOfParallelism = MaxDegreeOfParallelism };
             var results = new System.Collections.Concurrent.ConcurrentBag<List<string>>();
 
-            using var progress = new ProgressBar(columnData.Count);
-            await Parallel.ForEachAsync(columnData, parallelOptions, async (item, token) =>
+            // Convert and sort for smooth progress
+            var columnDataList = columnData.OrderBy(x => x.Member.Name).ToList();
+
+            ApiMetrics.Reset();
+
+            using var progress = new ProgressBar(columnDataList.Count);
+            await Parallel.ForEachAsync(columnDataList, parallelOptions, async (item, token) =>
             {
                 var (member, spans) = item;
                 var colLines = await ProcessColumnAsync(
@@ -159,6 +164,17 @@ namespace TeklaResultsInterrogator.Commands
             FancyWriteLine("Saved to: ", file1, "", TextColor.Path);
             double sizeKB = Math.Round(new FileInfo(file1).Length / 1024.0, 2);
             Console.WriteLine($"File size: {sizeKB} KB");
+
+            // Report Metrics
+            Console.WriteLine("\n--- API Diagnostics ---");
+            Console.WriteLine($"GetLoadingAsync:     {ApiMetrics.LoadingCalls} calls, Avg: {(ApiMetrics.LoadingCalls > 0 ? (double)ApiMetrics.LoadingDuration / ApiMetrics.LoadingCalls / 10000.0 : 0):F3} ms");
+            Console.WriteLine($"GetValueAsync:       {ApiMetrics.ValueCalls} calls, Avg: {(ApiMetrics.ValueCalls > 0 ? (double)ApiMetrics.ValueDuration / ApiMetrics.ValueCalls / 10000.0 : 0):F3} ms");
+            Console.WriteLine($"Peak Concurrency:    {ApiMetrics.MaxConcurrency}");
+            if (ApiMetrics.SemaphoreWaitCalls > 0)
+            {
+                Console.WriteLine($"Semaphore Waits:     {ApiMetrics.SemaphoreWaitCalls} calls, Avg: {(double)ApiMetrics.SemaphoreWaitDuration / ApiMetrics.SemaphoreWaitCalls / 10000.0:F3} ms, Max: {ApiMetrics.SemaphoreWaitMax / 10000.0:F3} ms");
+            }
+            Console.WriteLine("-----------------------\n");
 
             stopwatch.Stop();
             ExecutionTime = stopwatch.Elapsed.TotalSeconds;
@@ -271,7 +287,22 @@ namespace TeklaResultsInterrogator.Commands
 
             try
             {
-                IMemberLoading memberLoading = await member.GetLoadingAsync(integrityForceCase.Id, RequestedAnalysisType, LoadingResultType.Base);
+                IMemberLoading memberLoading;
+                var swWait = Stopwatch.StartNew();
+                await ApiLimiter.WaitAsync();
+                swWait.Stop();
+                ApiMetrics.RecordSemaphoreWait(swWait.ElapsedTicks);
+                var sw = Stopwatch.StartNew();
+                try
+                {
+                    memberLoading = await member.GetLoadingAsync(integrityForceCase.Id, RequestedAnalysisType, LoadingResultType.Base);
+                }
+                finally
+                {
+                    sw.Stop();
+                    ApiLimiter.Release();
+                }
+                ApiMetrics.RecordLoading(sw.ElapsedTicks);
                 double valCon = ConversionFactor(LoadingValueType.Force);
                 integrityForces[lifts[0].Name] = 0.0;
 
@@ -279,8 +310,8 @@ namespace TeklaResultsInterrogator.Commands
                 var firstSpan = lifts[0].Spans.First();
                 double startNodeForce = await FetchForce(memberLoading, firstSpan.Index, 0.0, reduced) * valCon;
 
-                // Get forces at all splice locations (Parallel)
-                var spliceTasks = new List<Task<double>>();
+                // Get forces at all splice locations - sequential processing to avoid API congestion
+                var spliceForces = new List<double>();
                 foreach (var lift in lifts)
                 {
                     foreach (var span in lift.Spans)
@@ -289,13 +320,10 @@ namespace TeklaResultsInterrogator.Commands
                             columnSpans.SpanSpliceInfo[span.Index].HasSplice)
                         {
                             double spliceOffset = columnSpans.SpanSpliceInfo[span.Index].SpliceOffset;
-                            spliceTasks.Add(Task.Run(async () =>
-                                await FetchForce(memberLoading, span.Index, spliceOffset, reduced) * valCon));
+                            spliceForces.Add(await FetchForce(memberLoading, span.Index, spliceOffset, reduced) * valCon);
                         }
                     }
                 }
-
-                var spliceForces = (await Task.WhenAll(spliceTasks)).ToList();
 
                 for (int i = 1; i < lifts.Count; i++)
                 {
@@ -326,7 +354,25 @@ namespace TeklaResultsInterrogator.Commands
             try
             {
                 var option = LoadingValueOptions.StaticValue(LoadingValueType.Force, LoadingDirection.Axial, reduced);
-                var values = await loading.GetValueAsync(option, spanIndex, pos);
+                IEnumerable<ILoadingValue> values;
+                var swWait = Stopwatch.StartNew();
+                await ApiLimiter.WaitAsync();
+                swWait.Stop();
+                ApiMetrics.RecordSemaphoreWait(swWait.ElapsedTicks);
+                var sw = Stopwatch.StartNew();
+                ApiMetrics.IncrementActiveValueCalls();
+                try
+                {
+                    values = await loading.GetValueAsync(option, spanIndex, pos);
+                }
+                finally
+                {
+                    ApiMetrics.DecrementActiveValueCalls();
+                    sw.Stop();
+                    ApiLimiter.Release();
+                }
+                ApiMetrics.RecordValue(sw.ElapsedTicks);
+
                 return values.MaxBy(v => Math.Abs(v.Value))?.Value ?? 0.0;
             }
             catch { }

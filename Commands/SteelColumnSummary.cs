@@ -166,8 +166,13 @@ namespace TeklaResultsInterrogator.Commands
             var parallelOptions = new ParallelOptions { MaxDegreeOfParallelism = MaxDegreeOfParallelism };
             var results = new System.Collections.Concurrent.ConcurrentBag<List<string>>();
 
-            using var progress = new ProgressBar(columnData.Count);
-            await Parallel.ForEachAsync(columnData, parallelOptions, async (item, token) =>
+            // Convert and sort for smooth progress
+            var columnDataList = columnData.OrderBy(x => x.Member.Name).ToList();
+
+            ApiMetrics.Reset();
+
+            using var progress = new ProgressBar(columnDataList.Count);
+            await Parallel.ForEachAsync(columnDataList, parallelOptions, async (item, token) =>
             {
                 var (member, spans) = item;
                 var colLines = await ProcessColumnAsync(member, spans, loadingCases, reduced, filterField, filterValue, levels, integrityForceCase, pointsDict);
@@ -194,6 +199,17 @@ namespace TeklaResultsInterrogator.Commands
             Console.WriteLine($"File size: {sizeKB} KB");
             double timeCSV = Math.Round(stopwatch.Elapsed.TotalSeconds - endWatch, 3);
             Console.WriteLine($"Summary table written in {timeCSV} seconds.\n");
+
+            // Report Metrics
+            Console.WriteLine("\n--- API Diagnostics ---");
+            Console.WriteLine($"GetLoadingAsync:     {ApiMetrics.LoadingCalls} calls, Avg: {(ApiMetrics.LoadingCalls > 0 ? (double)ApiMetrics.LoadingDuration / ApiMetrics.LoadingCalls / 10000.0 : 0):F3} ms");
+            Console.WriteLine($"GetValueAsync:       {ApiMetrics.ValueCalls} calls, Avg: {(ApiMetrics.ValueCalls > 0 ? (double)ApiMetrics.ValueDuration / ApiMetrics.ValueCalls / 10000.0 : 0):F3} ms");
+            Console.WriteLine($"Peak Concurrency:    {ApiMetrics.MaxConcurrency}");
+            if (ApiMetrics.SemaphoreWaitCalls > 0)
+            {
+                Console.WriteLine($"Semaphore Waits:     {ApiMetrics.SemaphoreWaitCalls} calls, Avg: {(double)ApiMetrics.SemaphoreWaitDuration / ApiMetrics.SemaphoreWaitCalls / 10000.0:F3} ms (Max: {ApiMetrics.SemaphoreWaitMax / 10000.0:F3} ms)");
+            }
+            Console.WriteLine("-----------------------\n");
 
             stopwatch.Stop();
             ExecutionTime = stopwatch.Elapsed.TotalSeconds;
@@ -300,25 +316,14 @@ namespace TeklaResultsInterrogator.Commands
                 {
                     IMemberLoading memberLoading = await member.GetLoadingAsync(loadingCase.Id, RequestedAnalysisType, LoadingResultType.Base);
 
-                    // Calculations
-
-                    var axialTask = GetMinMaxForceInLift(memberLoading, LoadingValueType.Force, LoadingDirection.Axial, lift, reduced);
-                    var majorMomentTask = GetMaxForceInLift(memberLoading, LoadingValueType.Moment, LoadingDirection.Major, lift, reduced);
-                    var majorShearTask = GetMaxForceInLift(memberLoading, LoadingValueType.Force, LoadingDirection.Major, lift, reduced);
-                    var minorMomentTask = GetMaxForceInLift(memberLoading, LoadingValueType.Moment, LoadingDirection.Minor, lift, reduced);
-                    var minorShearTask = GetMaxForceInLift(memberLoading, LoadingValueType.Force, LoadingDirection.Minor, lift, reduced);
-                    var eccMajorTask = GetMinMaxEccentricMomentInLift(memberLoading, LoadingDirection.Major, lift, reduced);
-                    var eccMinorTask = GetMinMaxEccentricMomentInLift(memberLoading, LoadingDirection.Minor, lift, reduced);
-
-                    await Task.WhenAll(axialTask, majorMomentTask, majorShearTask, minorMomentTask, minorShearTask, eccMajorTask, eccMinorTask);
-
-                    var (axialMax, axialMin) = axialTask.Result;
-                    var majorMomentMax = majorMomentTask.Result;
-                    var majorShearMax = majorShearTask.Result;
-                    var minorMomentMax = minorMomentTask.Result;
-                    var minorShearMax = minorShearTask.Result;
-                    var (eccMajorMax, eccMajorMin) = eccMajorTask.Result;
-                    var (eccMinorMax, eccMinorMin) = eccMinorTask.Result;
+                    // Calculations (sequential to avoid API congestion)
+                    var (axialMax, axialMin) = await GetMinMaxForceInLift(memberLoading, LoadingValueType.Force, LoadingDirection.Axial, lift, reduced);
+                    var majorMomentMax = await GetMaxForceInLift(memberLoading, LoadingValueType.Moment, LoadingDirection.Major, lift, reduced);
+                    var majorShearMax = await GetMaxForceInLift(memberLoading, LoadingValueType.Force, LoadingDirection.Major, lift, reduced);
+                    var minorMomentMax = await GetMaxForceInLift(memberLoading, LoadingValueType.Moment, LoadingDirection.Minor, lift, reduced);
+                    var minorShearMax = await GetMaxForceInLift(memberLoading, LoadingValueType.Force, LoadingDirection.Minor, lift, reduced);
+                    var (eccMajorMax, eccMajorMin) = await GetMinMaxEccentricMomentInLift(memberLoading, LoadingDirection.Major, lift, reduced);
+                    var (eccMinorMax, eccMinorMin) = await GetMinMaxEccentricMomentInLift(memberLoading, LoadingDirection.Minor, lift, reduced);
 
                     string line = $"{EscapeCsvValue(id.ToString())},{EscapeCsvValue(partMark)},{EscapeCsvValue(filterValue)},{EscapeCsvValue(member.Name)},{EscapeCsvValue(lift.Name)},{EscapeCsvValue(startLevelName)},{EscapeCsvValue(endLevelName)},{EscapeCsvValue(sectionName)},{EscapeCsvValue(materialName)}," +
                          $"{EscapeCsvValue(startNodeName)},{EscapeCsvValue(startNodeFixity)},{startX:F3},{startY:F3},{startZ:F3}," +
@@ -340,40 +345,49 @@ namespace TeklaResultsInterrogator.Commands
             ColumnLift lift,
             bool reduced)
         {
-            var tasks = new List<Task<double>>();
+            var allValues = new List<double>();
+
+            // Sequential processing to avoid API congestion
             foreach (var span in lift.Spans)
             {
-                tasks.Add(Task.Run(async () =>
-                {
-                    int samplePoints = 10;
-                    double spanLength = span.Length.Value;
-                    var option = LoadingValueOptions.StaticValue(valueType, direction, reduced);
+                int samplePoints = 10;
+                double spanLength = span.Length.Value;
+                var option = LoadingValueOptions.StaticValue(valueType, direction, reduced);
 
-                    var pointTasks = new List<Task<double?>>();
-                    for (int i = 0; i <= samplePoints; i++)
+                for (int i = 0; i <= samplePoints; i++)
+                {
+                    double pos = (i * spanLength) / samplePoints;
+                    try
                     {
-                        double pos = (i * spanLength) / samplePoints;
-                        pointTasks.Add(Task.Run(async () =>
+                        IEnumerable<ILoadingValue> vals;
+                        var swWait = Stopwatch.StartNew();
+                        await ApiLimiter.WaitAsync();
+                        swWait.Stop();
+                        ApiMetrics.RecordSemaphoreWait(swWait.ElapsedTicks);
+                        var sw = Stopwatch.StartNew();
+                        ApiMetrics.IncrementActiveValueCalls();
+                        try
                         {
-                            try
-                            {
-                                var vals = await loading.GetValueAsync(option, span.Index, pos);
-                                if (vals.Any())
-                                {
-                                    return (double?)Math.Abs(vals.MaxBy(v => Math.Abs(v.Value))!.Value);
-                                }
-                            }
-                            catch { }
-                            return (double?)null;
-                        }));
+                            vals = await loading.GetValueAsync(option, span.Index, pos);
+                        }
+                        finally
+                        {
+                            ApiMetrics.DecrementActiveValueCalls();
+                            sw.Stop();
+                            ApiLimiter.Release();
+                        }
+                        ApiMetrics.RecordValue(sw.ElapsedTicks);
+
+                        if (vals.Any())
+                        {
+                            allValues.Add(Math.Abs(vals.MaxBy(v => Math.Abs(v.Value))!.Value));
+                        }
                     }
-                    var results = await Task.WhenAll(pointTasks);
-                    return results.Where(r => r.HasValue).Select(r => r.GetValueOrDefault()).DefaultIfEmpty(0.0).Max();
-                }));
+                    catch { }
+                }
             }
 
-            var results = await Task.WhenAll(tasks);
-            return results.DefaultIfEmpty(0.0).Max() * ConversionFactor(valueType);
+            return allValues.DefaultIfEmpty(0.0).Max() * ConversionFactor(valueType);
         }
 
         private static async Task<(double max, double min)> GetMinMaxForceInLift(
@@ -383,50 +397,50 @@ namespace TeklaResultsInterrogator.Commands
             ColumnLift lift,
             bool reduced)
         {
-            var tasks = new List<Task<(double max, double min)>>();
+            var allValues = new List<double>();
+
+            // Sequential processing to avoid API congestion
             foreach (var span in lift.Spans)
             {
-                tasks.Add(Task.Run(async () =>
+                int samplePoints = 10;
+                double spanLength = span.Length.Value;
+                var option = LoadingValueOptions.StaticValue(valueType, direction, reduced);
+
+                for (int i = 0; i <= samplePoints; i++)
                 {
-                    int samplePoints = 10;
-                    double spanLength = span.Length.Value;
-                    var option = LoadingValueOptions.StaticValue(valueType, direction, reduced);
-
-                    var pointTasks = new List<Task<double?>>();
-                    for (int i = 0; i <= samplePoints; i++)
+                    double pos = (i * spanLength) / samplePoints;
+                    try
                     {
-                        double pos = (i * spanLength) / samplePoints;
-                        pointTasks.Add(Task.Run(async () =>
+                        IEnumerable<ILoadingValue> vals;
+                        var swWait = Stopwatch.StartNew();
+                        await ApiLimiter.WaitAsync();
+                        swWait.Stop();
+                        ApiMetrics.RecordSemaphoreWait(swWait.ElapsedTicks);
+                        var sw = Stopwatch.StartNew();
+                        ApiMetrics.IncrementActiveValueCalls();
+                        try
                         {
-                            try
-                            {
-                                var vals = await loading.GetValueAsync(option, span.Index, pos);
-                                if (vals.Any())
-                                {
-                                    return (double?)vals.MaxBy(v => Math.Abs(v.Value))?.Value;
-                                }
-                            }
-                            catch { }
-                            return (double?)null;
-                        }));
-                    }
-                    var results = await Task.WhenAll(pointTasks);
-                    var validResults = results.OfType<double>().ToList();
+                            vals = await loading.GetValueAsync(option, span.Index, pos);
+                        }
+                        finally
+                        {
+                            ApiMetrics.DecrementActiveValueCalls();
+                            sw.Stop();
+                            ApiLimiter.Release();
+                        }
+                        ApiMetrics.RecordValue(sw.ElapsedTicks);
 
-                    if (validResults.Any())
-                    {
-                        double maxVal = validResults.Max();
-                        double minVal = validResults.Min();
-                        return (maxVal > 0 ? maxVal : 0.0, minVal);
+                        if (vals.Any())
+                        {
+                            allValues.Add(vals.MaxBy(v => Math.Abs(v.Value))?.Value ?? 0.0);
+                        }
                     }
-
-                    return (0.0, double.NaN); // Use NaN to signal no data for min aggregation
-                }));
+                    catch { }
+                }
             }
 
-            var results = await Task.WhenAll(tasks);
-            double globalMax = results.Select(r => r.max).DefaultIfEmpty(0.0).Max();
-            double globalMin = results.Select(r => r.min).Where(m => !double.IsNaN(m)).DefaultIfEmpty(0.0).Min();
+            double globalMax = allValues.Where(v => v > 0).DefaultIfEmpty(0.0).Max();
+            double globalMin = allValues.DefaultIfEmpty(0.0).Min();
 
             double valCon = ConversionFactor(valueType);
             return (globalMax * valCon, globalMin * valCon);
@@ -438,44 +452,47 @@ namespace TeklaResultsInterrogator.Commands
             ColumnLift lift,
             bool reduced)
         {
-            var tasks = new List<Task<(double max, double? min)>>();
+            var allValues = new List<double>();
+
+            // Sequential processing to avoid API congestion
             foreach (var span in lift.Spans)
             {
-                tasks.Add(Task.Run(async () =>
+                int samplePoints = 10;
+                double spanLength = span.Length.Value;
+                var option = LoadingValueOptions.StaticValue(LoadingValueType.EccentricityMoment, direction, reduced);
+
+                for (int i = 0; i <= samplePoints; i++)
                 {
-                    int samplePoints = 10;
-                    double spanLength = span.Length.Value;
-                    var option = LoadingValueOptions.StaticValue(LoadingValueType.EccentricityMoment, direction, reduced);
-
-                    var pointTasks = new List<Task<double?>>();
-                    for (int i = 0; i <= samplePoints; i++)
+                    double pos = (i * spanLength) / samplePoints;
+                    try
                     {
-                        double pos = (i * spanLength) / samplePoints;
-                        pointTasks.Add(Task.Run(async () =>
+                        IEnumerable<ILoadingValue> vals;
+                        var swWait = Stopwatch.StartNew();
+                        await ApiLimiter.WaitAsync();
+                        swWait.Stop();
+                        ApiMetrics.RecordSemaphoreWait(swWait.ElapsedTicks);
+                        var sw = Stopwatch.StartNew();
+                        ApiMetrics.IncrementActiveValueCalls();
+                        try
                         {
-                            try
-                            {
-                                var vals = await loading.GetValueAsync(option, span.Index, pos);
-                                if (vals.Any()) return (double?)vals.First().Value;
-                            }
-                            catch { }
-                            return (double?)null;
-                        }));
-                    }
-                    var results = await Task.WhenAll(pointTasks);
-                    var validResults = results.OfType<double>().ToList();
+                            vals = await loading.GetValueAsync(option, span.Index, pos);
+                        }
+                        finally
+                        {
+                            ApiMetrics.DecrementActiveValueCalls();
+                            sw.Stop();
+                            ApiLimiter.Release();
+                        }
+                        ApiMetrics.RecordValue(sw.ElapsedTicks);
 
-                    if (validResults.Any())
-                    {
-                        return (validResults.Max(), (double?)validResults.Min());
+                        if (vals.Any()) allValues.Add(vals.First().Value);
                     }
-                    return (0.0, (double?)null);
-                }));
+                    catch { }
+                }
             }
 
-            var results = await Task.WhenAll(tasks);
-            double globalMax = results.Select(r => r.max).DefaultIfEmpty(0.0).Max();
-            double globalMin = results.Select(r => r.min).OfType<double>().DefaultIfEmpty(0.0).Min();
+            double globalMax = allValues.DefaultIfEmpty(0.0).Max();
+            double globalMin = allValues.DefaultIfEmpty(0.0).Min();
 
             double factor = ConversionFactor(LoadingValueType.Moment);
             return (globalMax * factor, globalMin * factor);
@@ -487,40 +504,48 @@ namespace TeklaResultsInterrogator.Commands
             ColumnLift lift,
             bool reduced)
         {
-            var tasks = new List<Task<double>>();
+            var allValues = new List<double>();
+
+            // Sequential processing to avoid API congestion
             foreach (var span in lift.Spans)
             {
-                tasks.Add(Task.Run(async () =>
-                {
-                    int samplePoints = 10;
-                    double spanLength = span.Length.Value;
-                    var option = LoadingValueOptions.StaticValue(LoadingValueType.EccentricityMoment, direction, reduced);
+                int samplePoints = 10;
+                double spanLength = span.Length.Value;
+                var option = LoadingValueOptions.StaticValue(LoadingValueType.EccentricityMoment, direction, reduced);
 
-                    var pointTasks = new List<Task<double?>>();
-                    for (int i = 0; i <= samplePoints; i++)
+                for (int i = 0; i <= samplePoints; i++)
+                {
+                    double pos = (i * spanLength) / samplePoints;
+                    try
                     {
-                        double pos = (i * spanLength) / samplePoints;
-                        pointTasks.Add(Task.Run(async () =>
+                        var swWait = Stopwatch.StartNew();
+                        await ApiLimiter.WaitAsync();
+                        swWait.Stop();
+                        ApiMetrics.RecordSemaphoreWait(swWait.ElapsedTicks);
+
+                        var swV = Stopwatch.StartNew();
+                        ApiMetrics.IncrementActiveValueCalls();
+                        try
                         {
-                            try
+                            var vals = await loading.GetValueAsync(option, span.Index, pos);
+                            if (vals.Any())
                             {
-                                var vals = await loading.GetValueAsync(option, span.Index, pos);
-                                if (vals.Any())
-                                {
-                                    return (double?)Math.Abs(vals.MaxBy(v => Math.Abs(v.Value))!.Value);
-                                }
+                                allValues.Add(Math.Abs(vals.MaxBy(v => Math.Abs(v.Value))!.Value));
                             }
-                            catch { }
-                            return (double?)null;
-                        }));
+                        }
+                        finally
+                        {
+                            ApiMetrics.DecrementActiveValueCalls();
+                            swV.Stop();
+                            ApiMetrics.RecordValue(swV.ElapsedTicks);
+                            ApiLimiter.Release();
+                        }
                     }
-                    var results = await Task.WhenAll(pointTasks);
-                    return results.Where(r => r.HasValue).Select(r => r.GetValueOrDefault()).DefaultIfEmpty(0.0).Max();
-                }));
+                    catch { }
+                }
             }
 
-            var results = await Task.WhenAll(tasks);
-            return results.DefaultIfEmpty(0.0).Max() * ConversionFactor(LoadingValueType.Moment);
+            return allValues.DefaultIfEmpty(0.0).Max() * ConversionFactor(LoadingValueType.Moment);
         }
 
         private async Task<Dictionary<string, double>> CalculateIntegrityForcesWithSpliceOffsets(
@@ -535,7 +560,23 @@ namespace TeklaResultsInterrogator.Commands
 
             try
             {
-                IMemberLoading memberLoading = await member.GetLoadingAsync(integrityForceCase.Id, RequestedAnalysisType, LoadingResultType.Base);
+                IMemberLoading memberLoading;
+                var swWaitL = Stopwatch.StartNew();
+                await ApiLimiter.WaitAsync();
+                swWaitL.Stop();
+                ApiMetrics.RecordSemaphoreWait(swWaitL.ElapsedTicks);
+
+                var swL = Stopwatch.StartNew();
+                try
+                {
+                    memberLoading = await member.GetLoadingAsync(integrityForceCase.Id, RequestedAnalysisType, LoadingResultType.Base);
+                }
+                finally
+                {
+                    swL.Stop();
+                    ApiMetrics.RecordLoading(swL.ElapsedTicks);
+                    ApiLimiter.Release();
+                }
                 double valCon = ConversionFactor(LoadingValueType.Force);
                 integrityForces[lifts[0].Name] = 0.0;
 
@@ -543,8 +584,8 @@ namespace TeklaResultsInterrogator.Commands
                 var firstSpan = lifts[0].Spans.First();
                 double startNodeForce = await FetchForce(memberLoading, firstSpan.Index, 0.0, reduced) * valCon;
 
-                // Splice forces
-                var spliceTasks = new List<Task<double>>();
+                // Splice forces - sequential processing to avoid API congestion
+                var spliceForces = new List<double>();
                 foreach (var lift in lifts)
                 {
                     foreach (var span in lift.Spans)
@@ -553,13 +594,10 @@ namespace TeklaResultsInterrogator.Commands
                             columnSpans.SpanSpliceInfo[span.Index].HasSplice)
                         {
                             double spliceOffset = columnSpans.SpanSpliceInfo[span.Index].SpliceOffset;
-                            spliceTasks.Add(Task.Run(async () =>
-                                await FetchForce(memberLoading, span.Index, spliceOffset, reduced) * valCon));
+                            spliceForces.Add(await FetchForce(memberLoading, span.Index, spliceOffset, reduced) * valCon);
                         }
                     }
                 }
-
-                var spliceForces = (await Task.WhenAll(spliceTasks)).ToList();
 
                 for (int i = 1; i < lifts.Count; i++)
                 {
@@ -589,7 +627,25 @@ namespace TeklaResultsInterrogator.Commands
             try
             {
                 var option = LoadingValueOptions.StaticValue(LoadingValueType.Force, LoadingDirection.Axial, reduced);
-                var values = await loading.GetValueAsync(option, spanIndex, pos);
+                IEnumerable<ILoadingValue> values;
+                var swWait = Stopwatch.StartNew();
+                await ApiLimiter.WaitAsync();
+                swWait.Stop();
+                ApiMetrics.RecordSemaphoreWait(swWait.ElapsedTicks);
+                var sw = Stopwatch.StartNew();
+                ApiMetrics.IncrementActiveValueCalls();
+                try
+                {
+                    values = await loading.GetValueAsync(option, spanIndex, pos);
+                }
+                finally
+                {
+                    ApiMetrics.DecrementActiveValueCalls();
+                    sw.Stop();
+                    ApiLimiter.Release();
+                }
+                ApiMetrics.RecordValue(sw.ElapsedTicks);
+
                 if (values.Any()) return values.MaxBy(v => Math.Abs(v.Value))?.Value ?? 0.0;
             }
             catch { }

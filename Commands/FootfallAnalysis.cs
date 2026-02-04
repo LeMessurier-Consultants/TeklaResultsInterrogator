@@ -32,6 +32,8 @@ namespace TeklaResultsInterrogator.Commands
 
             if (Flag) return;
 
+            ApiMetrics.Reset();
+
             // Data setup and diagnostics
             Stopwatch stopwatch = Stopwatch.StartNew();
             int bufferSize = 65536;
@@ -168,6 +170,17 @@ namespace TeklaResultsInterrogator.Commands
             Console.WriteLine($"File size: {size3} KB");
             double time3 = Math.Round(stopwatch.Elapsed.TotalSeconds - start3, 3);
             Console.WriteLine($"Joint coordinator table completed in {time3} seconds.");
+
+            // Report Metrics
+            Console.WriteLine("\n--- API Diagnostics ---");
+            Console.WriteLine($"GetLoadingAsync:     {ApiMetrics.LoadingCalls} calls, Avg: {(ApiMetrics.LoadingCalls > 0 ? (double)ApiMetrics.LoadingDuration / ApiMetrics.LoadingCalls / 10000.0 : 0):F3} ms");
+            Console.WriteLine($"GetValueAsync:       {ApiMetrics.ValueCalls} calls, Avg: {(ApiMetrics.ValueCalls > 0 ? (double)ApiMetrics.ValueDuration / ApiMetrics.ValueCalls / 10000.0 : 0):F3} ms");
+            Console.WriteLine($"Peak Concurrency:    {ApiMetrics.MaxConcurrency}");
+            if (ApiMetrics.SemaphoreWaitCalls > 0)
+            {
+                Console.WriteLine($"Semaphore Waits:     {ApiMetrics.SemaphoreWaitCalls} calls, Avg: {(double)ApiMetrics.SemaphoreWaitDuration / ApiMetrics.SemaphoreWaitCalls / 10000.0:F3} ms (Max: {ApiMetrics.SemaphoreWaitMax / 10000.0:F3} ms)");
+            }
+            Console.WriteLine("-----------------------\n");
 
             stopwatch.Stop();
             ExecutionTime = stopwatch.Elapsed.TotalSeconds;

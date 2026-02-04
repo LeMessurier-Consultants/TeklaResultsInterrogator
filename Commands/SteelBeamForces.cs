@@ -32,15 +32,15 @@ namespace TeklaResultsInterrogator.Commands
         public SteelBeamForces()
         {
             HasOutput = true;
-            RequestedMemberType = new List<MemberConstruction>() { MemberConstruction.SteelBeam, MemberConstruction.CompositeBeam };
+            RequestedMemberType = [MemberConstruction.SteelBeam, MemberConstruction.CompositeBeam];
         }
 
         string GetMemberLevelNameAsync(IMember member)
         {
             int constructionPointIndex = member.MemberNodes.Value.First().Value.ConstructionPointIndex.Value;
-            IEnumerable<IConstructionPoint> constructionPoints = Model!.GetConstructionPointsAsync(new List<int>() { constructionPointIndex }).Result;
+            IEnumerable<IConstructionPoint> constructionPoints = Model!.GetConstructionPointsAsync([constructionPointIndex]).Result;
             int planeId = constructionPoints.First().PlaneInfo.Value.Index;
-            IEnumerable<IHorizontalConstructionPlane> levels = Model.GetLevelsAsync(new List<int>() { planeId }).Result;
+            IEnumerable<IHorizontalConstructionPlane> levels = Model.GetLevelsAsync([planeId]).Result;
             string levelName;
             if (levels.Any())
             {
@@ -54,11 +54,11 @@ namespace TeklaResultsInterrogator.Commands
         }
         async Task<List<string>> GetMemberSpanInfoAsync(String levelName, IMember member, IMemberSpan span, int subdivisions, List<ILoadingCase> loadingCases, Boolean reduced)
         {
-            List<string> output = new();
+            List<string> output = [];
             Guid id = member.Id;
             string name = member.Name;
             string spanName = span.Name;
-            int spanIdx = span.Index;
+
             double length = span.Length.Value;
             double lengthFt = MmToFt(length); // Converting from [mm] to [ft]
             double rot = Math.Round(RadToDeg(span.RotationAngle.Value), 3); // Converting from [rad] to [deg]
@@ -92,30 +92,27 @@ namespace TeklaResultsInterrogator.Commands
 
             else
             {
-                List<Task<MaxSpanInfo>> maxSpanInfotasks = new();
-                List<Task<List<PointSpanInfo>>> pointSpanInfotasks = new();
+                List<MaxSpanInfo> completedMaxSpanTasks = [];
+                List<List<PointSpanInfo>> completedPointSpanInfoTasks = [];
 
+                // Sequential processing to avoid API congestion
                 foreach (ILoadingCase loadingCase in loadingCases)
                 {
-                    string loadName = loadingCase.Name.Replace(',', '`');
+
                     SpanResults spanResults = new(span, subdivisions, loadingCase, reduced, RequestedAnalysisType, member);
 
                     if (subdivisions >= 1)
                     {
-                        // Getting maximum internal forces and displacements and locations in parallel
-                        maxSpanInfotasks.Add(Task.Run(() => spanResults.GetMaxima()));
+                        // Getting maximum internal forces and displacements
+                        completedMaxSpanTasks.Add(await spanResults.GetMaxima());
                     }
 
                     if (subdivisions >= 2)
                     {
-                        // Getting internal forces and displacements at each station in parallel
-                        pointSpanInfotasks.Add(Task.Run(() => spanResults.GetStations()));
+                        // Getting internal forces and displacements at each station
+                        completedPointSpanInfoTasks.Add(await spanResults.GetStations());
                     }
                 }
-                // Wait for all maxSpanInfo tasks to finish
-                MaxSpanInfo[] completedMaxSpanTasks = await Task.WhenAll(maxSpanInfotasks); //execute in parallel
-                // Wait for all pointSpanInfo tasks to finish
-                List<PointSpanInfo>[] completedPointSpanInfoTasks = await Task.WhenAll(pointSpanInfotasks); //execute in parallel
 
                 //Process MaxSpanInfo results
                 foreach (MaxSpanInfo task in completedMaxSpanTasks)
@@ -157,6 +154,9 @@ namespace TeklaResultsInterrogator.Commands
 
             if (Flag) return;
 
+            // Reset API metrics for this command run
+            ApiMetrics.Reset();
+
             // Data setup and diagnostics initialization
             Stopwatch stopwatch = Stopwatch.StartNew();
             int bufferSize = 65536 * 2;
@@ -197,36 +197,81 @@ namespace TeklaResultsInterrogator.Commands
 
             List<string>[] completedTaskOutput;
 
-            // Build list of (member, span, levelName) tuples for parallel processing
-            FancyWriteLine("Collecting span data...", TextColor.Title);
-            var spanData = new List<(IMember member, IMemberSpan span, string levelName)>();
-            using (var collectProgress = new ProgressBar(steelBeams.Count))
-            {
-                foreach (IMember member in steelBeams)
-                {
-                    string levelName = GetMemberLevelNameAsync(member);
-                    IEnumerable<IMemberSpan> spans = await member.GetSpanAsync();
-                    foreach (IMemberSpan span in spans)
-                    {
-                        spanData.Add((member, span, levelName));
-                    }
-                    collectProgress.Increment();
-                }
-            }
-            FancyWriteLine("Processing forces...", TextColor.Title);
-
+            // Use global parallelism setting now that API usage is throttled via ApiLimiter
             var parallelOptions = new ParallelOptions { MaxDegreeOfParallelism = MaxDegreeOfParallelism };
             var results = new System.Collections.Concurrent.ConcurrentBag<List<string>>();
 
-            using var progress = new ProgressBar(spanData.Count);
-            await Parallel.ForEachAsync(spanData, parallelOptions, async (item, token) =>
+
+            // Phase 1: Collect span data (Parallel) with Throttling & Error Handling
+            FancyWriteLine("Collecting span data...", TextColor.Title);
+            var spanData = new System.Collections.Concurrent.ConcurrentBag<(IMember member, IMemberSpan span, string levelName)>();
+            var exceptions = new System.Collections.Concurrent.ConcurrentBag<Exception>();
+
+            using (var collectProgress = new ProgressBar(steelBeams.Count))
+            {
+                // Re-enable parallelism but respect the global API limit (Safety First!)
+                await Parallel.ForEachAsync(steelBeams, parallelOptions, async (member, token) =>
+                {
+                    try
+                    {
+                        // Throttle API calls in Phase 1
+                        await ApiLimiter.WaitAsync(token);
+                        string levelName;
+                        IEnumerable<IMemberSpan> spans;
+                        try
+                        {
+                            levelName = GetMemberLevelNameAsync(member);
+                            spans = await member.GetSpanAsync(cancellationToken: token);
+                        }
+                        finally
+                        {
+                            ApiLimiter.Release();
+                        }
+
+                        foreach (IMemberSpan span in spans)
+                        {
+                            spanData.Add((member, span, levelName));
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        exceptions.Add(ex);
+                        // Don't crash the whole loop, just log internally and continue
+                    }
+                    finally
+                    {
+                        collectProgress.Increment();
+                    }
+                });
+            }
+
+            if (!exceptions.IsEmpty)
+            {
+                FancyWriteLine($"\nWarning: {exceptions.Count} members failed to collect span data.", TextColor.Warning);
+                foreach (var ex in exceptions.Take(5))
+                {
+                    FancyWriteLine($"Error: {ex.Message}", TextColor.Error);
+                }
+                if (exceptions.Count > 5) FancyWriteLine($"...and {exceptions.Count - 5} more.", TextColor.Error);
+            }
+
+            // Phase 2: Process forces (Parallel)
+            var collectedSpans = spanData.ToList();
+            FancyWriteLine($"Processing forces for {collectedSpans.Count} spans...", TextColor.Title);
+            using var progress = new ProgressBar(collectedSpans.Count);
+
+            // Adjusted parallelism to match API Limit to prevent 'batching' pauses
+            // Previous setting (ProcCount * 8 = 128) caused consistent 0.75s pauses every 128 items.
+            var smoothedParallelOptions = new ParallelOptions { MaxDegreeOfParallelism = SolverInterrogator.MaxDegreeOfParallelism, CancellationToken = parallelOptions.CancellationToken };
+
+            await Parallel.ForEachAsync(collectedSpans, smoothedParallelOptions, async (item, token) =>
             {
                 var spanLines = await GetMemberSpanInfoAsync(item.levelName, item.member, item.span, subdivisions, loadingCases, reduced);
                 results.Add(spanLines);
                 progress.Increment();
             });
 
-            completedTaskOutput = results.ToArray();
+            completedTaskOutput = [.. results];
             // Getting internal forces and writing table
             FancyWriteLine("\nWriting internal forces table...", TextColor.Title);
             double writeStart = stopwatch.Elapsed.TotalSeconds;
@@ -254,6 +299,18 @@ namespace TeklaResultsInterrogator.Commands
             ExecutionTime = stopwatch.Elapsed.TotalSeconds;
 
             Check();
+
+            // Report Metrics
+            Console.WriteLine("\n--- API Diagnostics ---");
+            Console.WriteLine($"GetLoadingAsync:     {ApiMetrics.LoadingCalls} calls, Avg: {(ApiMetrics.LoadingCalls > 0 ? (double)ApiMetrics.LoadingDuration / ApiMetrics.LoadingCalls / 10000.0 : 0):F3} ms");
+            Console.WriteLine($"GetPointsOfInterest: {ApiMetrics.PoiCalls} calls, Avg: {(ApiMetrics.PoiCalls > 0 ? (double)ApiMetrics.PoiDuration / ApiMetrics.PoiCalls / 10000.0 : 0):F3} ms");
+            Console.WriteLine($"GetValueAsync:       {ApiMetrics.ValueCalls} calls, Avg: {(ApiMetrics.ValueCalls > 0 ? (double)ApiMetrics.ValueDuration / ApiMetrics.ValueCalls / 10000.0 : 0):F3} ms");
+            Console.WriteLine($"Peak Concurrency:    {ApiMetrics.MaxConcurrency}");
+            if (ApiMetrics.SemaphoreWaitCalls > 0)
+            {
+                Console.WriteLine($"Semaphore Waits:     {ApiMetrics.SemaphoreWaitCalls} calls, Avg: {(double)ApiMetrics.SemaphoreWaitDuration / ApiMetrics.SemaphoreWaitCalls / 10000.0:F3} ms (Max: {ApiMetrics.SemaphoreWaitMax / 10000.0:F3} ms)");
+            }
+            Console.WriteLine("-----------------------\n");
 
             return;
         }

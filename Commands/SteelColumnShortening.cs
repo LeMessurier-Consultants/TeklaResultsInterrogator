@@ -204,8 +204,13 @@ namespace TeklaResultsInterrogator.Commands
             var parallelOptions = new ParallelOptions { MaxDegreeOfParallelism = MaxDegreeOfParallelism };
             var results = new System.Collections.Concurrent.ConcurrentBag<List<string>>();
 
-            using var progress = new ProgressBar(columnData.Count);
-            await Parallel.ForEachAsync(columnData, parallelOptions, async (item, token) =>
+            // Convert and sort for smooth progress
+            var columnDataList = columnData.OrderBy(x => x.Member.Name).ToList();
+
+            ApiMetrics.Reset();
+
+            using var progress = new ProgressBar(columnDataList.Count);
+            await Parallel.ForEachAsync(columnDataList, parallelOptions, async (item, token) =>
             {
                 var (_, spans) = item;
                 var colLines = await ProcessColumnShorteningAsync(
@@ -236,6 +241,17 @@ namespace TeklaResultsInterrogator.Commands
             double sizeKB = Math.Round(new FileInfo(file1).Length / 1024.0, 2);
             Console.WriteLine($"File size: {sizeKB} KB");
 
+            // Report Metrics
+            Console.WriteLine("\n--- API Diagnostics ---");
+            Console.WriteLine($"GetLoadingAsync:     {ApiMetrics.LoadingCalls} calls, Avg: {(ApiMetrics.LoadingCalls > 0 ? (double)ApiMetrics.LoadingDuration / ApiMetrics.LoadingCalls / 10000.0 : 0):F3} ms");
+            Console.WriteLine($"GetValueAsync:       {ApiMetrics.ValueCalls} calls, Avg: {(ApiMetrics.ValueCalls > 0 ? (double)ApiMetrics.ValueDuration / ApiMetrics.ValueCalls / 10000.0 : 0):F3} ms");
+            Console.WriteLine($"Peak Concurrency:    {ApiMetrics.MaxConcurrency}");
+            if (ApiMetrics.SemaphoreWaitCalls > 0)
+            {
+                Console.WriteLine($"Semaphore Waits:     {ApiMetrics.SemaphoreWaitCalls} calls, Avg: {(double)ApiMetrics.SemaphoreWaitDuration / ApiMetrics.SemaphoreWaitCalls / 10000.0:F3} ms (Max: {ApiMetrics.SemaphoreWaitMax / 10000.0:F3} ms)");
+            }
+            Console.WriteLine("-----------------------\n");
+
             stopwatch.Stop();
             ExecutionTime = stopwatch.Elapsed.TotalSeconds;
             Check();
@@ -258,7 +274,22 @@ namespace TeklaResultsInterrogator.Commands
             /* Pre-fetch member loading ONCE for the column if possible?
                Actually GetLoadingAsync needs to be called on member.
                We can call it once per member. */
-            IMemberLoading memberLoading = await member.GetLoadingAsync(loadingCase.Id, RequestedAnalysisType, LoadingResultType.Base);
+            IMemberLoading memberLoading = null!;
+            var swWait = Stopwatch.StartNew();
+            await ApiLimiter.WaitAsync();
+            swWait.Stop();
+            ApiMetrics.RecordSemaphoreWait(swWait.ElapsedTicks);
+            var sw = Stopwatch.StartNew();
+            try
+            {
+                memberLoading = await member.GetLoadingAsync(loadingCase.Id, RequestedAnalysisType, LoadingResultType.Base);
+            }
+            finally
+            {
+                sw.Stop();
+                ApiMetrics.RecordLoading(sw.ElapsedTicks);
+                ApiLimiter.Release();
+            }
 
             for (int liftIndex = 0; liftIndex < lifts.Count; liftIndex++)
             {
@@ -361,40 +392,53 @@ namespace TeklaResultsInterrogator.Commands
             if (area <= 0) return (0.0, new List<SpanShorteningDetail>());
 
             double valCon = ConversionFactor(LoadingValueType.Force);
-            List<Task<SpanShorteningDetail>> tasks = new();
+            var spanDetails = new List<SpanShorteningDetail>();
 
+            // Sequential processing to avoid API congestion
             foreach (var span in lift.Spans)
             {
-                tasks.Add(Task.Run(async () =>
+                double spanForce = 0.0;
+                try
                 {
-                    double spanForce = 0.0;
+                    // Get force at start of span (position 0.0)
+                    var option = LoadingValueOptions.StaticValue(LoadingValueType.Force, LoadingDirection.Axial, reduced);
+                    IEnumerable<ILoadingValue> values;
+                    var swWait = Stopwatch.StartNew();
+                    await ApiLimiter.WaitAsync();
+                    swWait.Stop();
+                    ApiMetrics.RecordSemaphoreWait(swWait.ElapsedTicks);
+                    var sw = Stopwatch.StartNew();
+                    ApiMetrics.IncrementActiveValueCalls();
                     try
                     {
-                        // Get force at start of span (position 0.0)
-                        var option = LoadingValueOptions.StaticValue(LoadingValueType.Force, LoadingDirection.Axial, reduced);
-                        var values = await memberLoading.GetValueAsync(option, span.Index, 0.0);
-                        if (values.Any())
-                            spanForce = Math.Abs(values.MaxBy(v => Math.Abs(v.Value))?.Value ?? 0.0) * valCon;
+                        values = await memberLoading.GetValueAsync(option, span.Index, 0.0);
                     }
-                    catch { }
-
-                    double spanLengthInches = MmToIn(span.Length.Value);
-                    double spanLengthFt = MmToFt(span.Length.Value);
-                    double spanShortening = (spanForce * spanLengthInches) / (area * STEEL_MODULUS_E);
-
-                    return new SpanShorteningDetail
+                    finally
                     {
-                        Force = spanForce,
-                        LengthFt = spanLengthFt,
-                        Shortening = spanShortening
-                    };
-                }));
+                        ApiMetrics.DecrementActiveValueCalls();
+                        sw.Stop();
+                        ApiLimiter.Release();
+                    }
+                    ApiMetrics.RecordValue(sw.ElapsedTicks);
+
+                    if (values.Any())
+                        spanForce = Math.Abs(values.MaxBy(v => Math.Abs(v.Value))?.Value ?? 0.0) * valCon;
+                }
+                catch { }
+
+                double spanLengthInches = MmToIn(span.Length.Value);
+                double spanLengthFt = MmToFt(span.Length.Value);
+                double spanShortening = (spanForce * spanLengthInches) / (area * STEEL_MODULUS_E);
+
+                spanDetails.Add(new SpanShorteningDetail
+                {
+                    Force = spanForce,
+                    LengthFt = spanLengthFt,
+                    Shortening = spanShortening
+                });
             }
 
-            var results = await Task.WhenAll(tasks);
-            var spanDetails = results.ToList();
             double totalShortening = spanDetails.Sum(s => s.Shortening);
-
             return (totalShortening, spanDetails);
         }
 

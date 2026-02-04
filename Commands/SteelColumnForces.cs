@@ -130,8 +130,13 @@ namespace TeklaResultsInterrogator.Commands
             var parallelOptions = new ParallelOptions { MaxDegreeOfParallelism = MaxDegreeOfParallelism };
             var results = new System.Collections.Concurrent.ConcurrentBag<List<string>>();
 
-            using var progress = new ProgressBar(columnData.Count);
-            await Parallel.ForEachAsync(columnData, parallelOptions, async (item, token) =>
+            // Convert and sort for smooth progress
+            var columnDataList = columnData.OrderBy(x => x.Member.Name).ToList();
+
+            ApiMetrics.Reset();
+
+            using var progress = new ProgressBar(columnDataList.Count);
+            await Parallel.ForEachAsync(columnDataList, parallelOptions, async (item, token) =>
             {
                 var (member, spans) = item;
                 var colLines = await ProcessColumnAsync(member, spans, loadingCases, reduced, filterField, filterValue, levels, pointsDict);
@@ -159,6 +164,14 @@ namespace TeklaResultsInterrogator.Commands
             double timeCSV = Math.Round(stopwatch.Elapsed.TotalSeconds - endWatch, 3);
             Console.WriteLine($"Steel Column table written in {timeCSV} seconds.\n");
 
+            // Report Metrics
+            Console.WriteLine("\n--- API Diagnostics ---");
+            Console.WriteLine($"GetLoadingAsync:     {ApiMetrics.LoadingCalls} calls, Avg: {(ApiMetrics.LoadingCalls > 0 ? ApiMetrics.LoadingDuration / ApiMetrics.LoadingCalls / 10000.0 : 0):F3} ms");
+            Console.WriteLine($"GetValueAsync:       {ApiMetrics.ValueCalls} calls, Avg: {(ApiMetrics.ValueCalls > 0 ? ApiMetrics.ValueDuration / ApiMetrics.ValueCalls / 10000.0 : 0):F3} ms");
+            Console.WriteLine($"Peak Concurrency:    {ApiMetrics.MaxConcurrency}");
+            Console.WriteLine($"Semaphore Waits:     {ApiMetrics.SemaphoreWaitCalls} calls, Avg: {(ApiMetrics.SemaphoreWaitCalls > 0 ? ApiMetrics.SemaphoreWaitDuration / ApiMetrics.SemaphoreWaitCalls / 10000.0 : 0):F3} ms (Max: {ApiMetrics.SemaphoreWaitMax / 10000.0:F3} ms)");
+            Console.WriteLine("-----------------------\n");
+
             stopwatch.Stop();
             ExecutionTime = stopwatch.Elapsed.TotalSeconds;
             Check();
@@ -181,15 +194,13 @@ namespace TeklaResultsInterrogator.Commands
             bool hasSplice = columnSpans.HasSplice;
             string hasSpliceText = hasSplice ? "Yes" : "No";
 
-            var spanTasks = new List<Task<List<string>>>();
+            // Sequential processing to avoid API congestion within parallel column processing
             foreach (var span in allSpans)
             {
-                spanTasks.Add(GetSpanForcesAsync(
-                    member, span, columnSpans, loadingCases, reduced, filterField, filterValue, levels, hasSpliceText, pointsDict));
+                var spanLines = await GetSpanForcesAsync(
+                    member, span, columnSpans, loadingCases, reduced, filterField, filterValue, levels, hasSpliceText, pointsDict);
+                lines.AddRange(spanLines);
             }
-
-            var spanResults = await Task.WhenAll(spanTasks);
-            foreach (var res in spanResults) lines.AddRange(res);
 
             return lines;
         }
@@ -287,24 +298,30 @@ namespace TeklaResultsInterrogator.Commands
 
             foreach (var loadingCase in loadingCases)
             {
-                IMemberLoading memberLoading = await member.GetLoadingAsync(loadingCase.Id, RequestedAnalysisType, LoadingResultType.Base);
+                IMemberLoading memberLoading;
+                var swWait = Stopwatch.StartNew();
+                await ApiLimiter.WaitAsync();
+                swWait.Stop();
+                ApiMetrics.RecordSemaphoreWait(swWait.ElapsedTicks);
+                var sw = Stopwatch.StartNew();
+                try
+                {
+                    memberLoading = await member.GetLoadingAsync(loadingCase.Id, RequestedAnalysisType, LoadingResultType.Base);
+                }
+                finally
+                {
+                    sw.Stop();
+                    ApiLimiter.Release();
+                }
+                ApiMetrics.RecordLoading(sw.ElapsedTicks);
 
-                // Batch Fetch (Parallel calls as fallback)
-                var axialForcesTask = GetBatchedLoadingValues(memberLoading, LoadingValueType.Force, LoadingDirection.Axial, positionsMm, reduced, span.Index);
-                var majorShearsTask = GetBatchedLoadingValues(memberLoading, LoadingValueType.Force, LoadingDirection.Major, positionsMm, reduced, span.Index);
-                var minorShearsTask = GetBatchedLoadingValues(memberLoading, LoadingValueType.Force, LoadingDirection.Minor, positionsMm, reduced, span.Index);
-                var majorMomentsTask = GetBatchedLoadingValues(memberLoading, LoadingValueType.Moment, LoadingDirection.Major, positionsMm, reduced, span.Index);
-                var minorMomentsTask = GetBatchedLoadingValues(memberLoading, LoadingValueType.Moment, LoadingDirection.Minor, positionsMm, reduced, span.Index);
-                var torsionsTask = GetBatchedLoadingValues(memberLoading, LoadingValueType.Moment, LoadingDirection.Axial, positionsMm, reduced, span.Index);
-
-                await Task.WhenAll(axialForcesTask, majorShearsTask, minorShearsTask, majorMomentsTask, minorMomentsTask, torsionsTask);
-
-                var axialForces = axialForcesTask.Result;
-                var majorShears = majorShearsTask.Result;
-                var minorShears = minorShearsTask.Result;
-                var majorMoments = majorMomentsTask.Result;
-                var minorMoments = minorMomentsTask.Result;
-                var torsions = torsionsTask.Result;
+                // Batch Fetch (sequential to avoid API congestion)
+                var axialForces = await GetBatchedLoadingValues(memberLoading, LoadingValueType.Force, LoadingDirection.Axial, positionsMm, reduced, span.Index);
+                var majorShears = await GetBatchedLoadingValues(memberLoading, LoadingValueType.Force, LoadingDirection.Major, positionsMm, reduced, span.Index);
+                var minorShears = await GetBatchedLoadingValues(memberLoading, LoadingValueType.Force, LoadingDirection.Minor, positionsMm, reduced, span.Index);
+                var majorMoments = await GetBatchedLoadingValues(memberLoading, LoadingValueType.Moment, LoadingDirection.Major, positionsMm, reduced, span.Index);
+                var minorMoments = await GetBatchedLoadingValues(memberLoading, LoadingValueType.Moment, LoadingDirection.Minor, positionsMm, reduced, span.Index);
+                var torsions = await GetBatchedLoadingValues(memberLoading, LoadingValueType.Moment, LoadingDirection.Axial, positionsMm, reduced, span.Index);
 
                 for (int i = 0; i < positions.Count; i++)
                 {
@@ -337,21 +354,33 @@ namespace TeklaResultsInterrogator.Commands
             int spanIndex)
         {
             var option = LoadingValueOptions.StaticValue(valueType, direction, reduced);
-            // Parallel requests for each position
-            var tasks = new List<Task<double>>();
+            // Sequential processing to avoid API congestion
+            var results = new List<double>();
             foreach (var pos in positionsMm)
             {
-                tasks.Add(Task.Run(async () =>
+                IEnumerable<ILoadingValue> values;
+                var swWait = Stopwatch.StartNew();
+                await ApiLimiter.WaitAsync();
+                swWait.Stop();
+                ApiMetrics.RecordSemaphoreWait(swWait.ElapsedTicks);
+                var sw = Stopwatch.StartNew();
+                ApiMetrics.IncrementActiveValueCalls();
+                try
                 {
-                    var values = await loading.GetValueAsync(option, spanIndex, pos);
-                    // Select the value with the largest magnitude (Absolute Max).
-                    // This ensures we capture large negative values (e.g. Max Tension) which are 
-                    // significant but would be ignored by a simple algebraic Max().
-                    // The original sign is preserved in the returned value.
-                    return values.MaxBy(lv => Math.Abs(lv.Value))?.Value ?? 0.0;
-                }));
+                    values = await loading.GetValueAsync(option, spanIndex, pos);
+                }
+                finally
+                {
+                    ApiMetrics.DecrementActiveValueCalls();
+                    sw.Stop();
+                    ApiLimiter.Release();
+                }
+                ApiMetrics.RecordValue(sw.ElapsedTicks);
+
+                // Select the value with the largest magnitude (Absolute Max).
+                results.Add(values.MaxBy(lv => Math.Abs(lv.Value))?.Value ?? 0.0);
             }
-            return await Task.WhenAll(tasks);
+            return results;
         }
 
         // Helper to get level name safely

@@ -149,6 +149,17 @@ namespace TeklaResultsInterrogator.Commands
             double timeCSV = Math.Round(stopwatch.Elapsed.TotalSeconds - endWatch, 3);
             Console.WriteLine($"Timber Column table written in {timeCSV} seconds.\n");
 
+            // Report Metrics
+            Console.WriteLine("\n--- API Diagnostics ---");
+            Console.WriteLine($"GetLoadingAsync:     {ApiMetrics.LoadingCalls} calls, Avg: {(ApiMetrics.LoadingCalls > 0 ? (double)ApiMetrics.LoadingDuration / ApiMetrics.LoadingCalls / 10000.0 : 0):F3} ms");
+            Console.WriteLine($"GetValueAsync:       {ApiMetrics.ValueCalls} calls, Avg: {(ApiMetrics.ValueCalls > 0 ? (double)ApiMetrics.ValueDuration / ApiMetrics.ValueCalls / 10000.0 : 0):F3} ms");
+            Console.WriteLine($"Peak Concurrency:    {ApiMetrics.MaxConcurrency}");
+            if (ApiMetrics.SemaphoreWaitCalls > 0)
+            {
+                Console.WriteLine($"Semaphore Waits:     {ApiMetrics.SemaphoreWaitCalls} calls, Avg: {(double)ApiMetrics.SemaphoreWaitDuration / ApiMetrics.SemaphoreWaitCalls / 10000.0:F3} ms, Max: {ApiMetrics.SemaphoreWaitMax / 10000.0:F3} ms");
+            }
+            Console.WriteLine("-----------------------\n");
+
             stopwatch.Stop();
             ExecutionTime = stopwatch.Elapsed.TotalSeconds;
 
@@ -177,7 +188,21 @@ namespace TeklaResultsInterrogator.Commands
 
                 foreach (IMemberSpan span in lift.Values)
                 {
-                    var udas = await span.GetUserDefinedAttributesAsync();
+                    IEnumerable<IUserDefinedAttribute> udas;
+                    var swWait = Stopwatch.StartNew();
+                    await ApiLimiter.WaitAsync();
+                    swWait.Stop();
+                    ApiMetrics.RecordSemaphoreWait(swWait.ElapsedTicks);
+                    var sw = Stopwatch.StartNew();
+                    try
+                    {
+                        udas = await span.GetUserDefinedAttributesAsync();
+                    }
+                    finally
+                    {
+                        sw.Stop();
+                        ApiLimiter.Release();
+                    }
 
                     // Filter Check
                     if (!string.IsNullOrEmpty(filterValue) && filterField != null)
