@@ -2,7 +2,7 @@
 
 A powerful, high-performance console application designed to extract structural analysis results and design data from **Tekla Structural Designer (TSD)**. Built for structural engineers and developers, this tool bridges the gap between raw TSD analytical data and actionable formatted reporting.
 
-## � Key Features
+## 🔍 Key Features
 
 *   **Dynamic Command Discovery**: Automatically detects and loads new interrogation commands using C# Reflection.
 *   **High Performance Extraction**: Utilizes `Parallel.ForEachAsync` with a `SemaphoreSlim` (ApiLimiter) to maximize throughput without overwhelming the TSD API.
