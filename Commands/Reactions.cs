@@ -50,6 +50,7 @@ namespace TeklaResultsInterrogator.Commands
 
             stopwatch.Stop();
             List<ILoadingCase> loadingCases = AskLoading(SolvedCases, SolvedCombinations, SolvedEnvelopes);
+            bool reduced = AskReduced();
             stopwatch.Start();
 
             List<int> mysupportIDs = new List<int>();
@@ -68,7 +69,7 @@ namespace TeklaResultsInterrogator.Commands
             {
                 foreach (INode support in allSupports)
                 {
-                    IForce3DGlobal reaction = await support.GetSupportReactionAsync(loadcase.Id, false);
+                    IForce3DGlobal reaction = await support.GetSupportReactionAsync(loadcase.Id, reduced);
                     IConstructionPoint my_point = constructionPoints.Where(pt => pt.SolverNodeIndex != null && pt.SolverNodeIndex.Value.Equals(support.Index)).First();
                     object[] support_reactions = { support.Index, my_point.Name,
                                                        MmToFt(support.Coordinates.X), MmToFt(support.Coordinates.Y), MmToFt(support.Coordinates.Z),
