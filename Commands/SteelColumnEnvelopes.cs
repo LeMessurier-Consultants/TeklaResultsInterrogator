@@ -121,7 +121,7 @@ namespace TeklaResultsInterrogator.Commands
 
             // Setting up file
             string file1 = SaveDirectory + @"SteelColumnEnvelopes_" + OutputFileName + ".csv";
-            string header1 = "Tekla GUID,Part Mark,UDA Filter,Member Name,Lift Name,Start Level,End Level,Shape,Material," +
+            string header1 = "Tekla GUID,Part Mark,UDA Filter,Member Name,Lift Name,Start Level,End Level,Shape,Material,Section Area [in2]," +
                  "Start Node,Start Node Fixity,X_StartNode,Y_StartNode,Z_StartNode," +
                  "End Node,End Node Fixity,X_EndNode,Y_EndNode,Z_EndNode," +
                  "Lift Length [ft],Span Rotation [deg],Loading Name," +
@@ -255,12 +255,16 @@ namespace TeklaResultsInterrogator.Commands
                 // Get section and material
                 string sectionName = "Unknown";
                 string materialName = "Unknown";
+                double sectionArea = 0.0;
 
                 if (firstSpan.ElementSection.Value != null)
                 {
                     var elementSection = (IMemberSection)firstSpan.ElementSection.Value;
                     var physicalSection = (ISection)elementSection.PhysicalSection.Value;
                     sectionName = physicalSection.LongName ?? "Unknown";
+
+                    // Get section area and convert from mm² to in²
+                    sectionArea = MmSqToInSq(physicalSection.CrossSectionalArea);
                 }
 
                 if (firstSpan.Material?.Value != null)
@@ -297,15 +301,39 @@ namespace TeklaResultsInterrogator.Commands
 
                     // Get envelope forces (sequential to avoid API congestion)
                     var (axialMax, axialMin) = await GetMinMaxForceInLift(memberLoading, LoadingValueType.Force, LoadingDirection.Axial, lift, reduced);
-                    var majorMomentMax = await GetMaxForceInLift(memberLoading, LoadingValueType.Moment, LoadingDirection.Major, lift, reduced);
-                    var majorShearMax = await GetMaxForceInLift(memberLoading, LoadingValueType.Force, LoadingDirection.Major, lift, reduced);
-                    var minorMomentMax = await GetMaxForceInLift(memberLoading, LoadingValueType.Moment, LoadingDirection.Minor, lift, reduced);
-                    var minorShearMax = await GetMaxForceInLift(memberLoading, LoadingValueType.Force, LoadingDirection.Minor, lift, reduced);
 
+                    double majorMomentMax = 0;
+                    double majorShearMax = 0;
+                    double minorMomentMax = 0;
+                    double minorShearMax = 0;
 
+                    // For envelopes, query moments/shears from child combinations
+                    // (Envelopes don't store moments/shears directly, only forces)
+                    if (loadingCase is IEnvelope envelope && envelope.CombinationIds != null)
+                    {
+                        try
+                        {
+                            majorMomentMax = await GetMaxMomentFromEnvelope(member, envelope, LoadingDirection.Major, lift, reduced, analysisType);
+                            majorShearMax = await GetMaxShearFromEnvelope(member, envelope, LoadingDirection.Major, lift, reduced, analysisType);
+                            minorMomentMax = await GetMaxMomentFromEnvelope(member, envelope, LoadingDirection.Minor, lift, reduced, analysisType);
+                            minorShearMax = await GetMaxShearFromEnvelope(member, envelope, LoadingDirection.Minor, lift, reduced, analysisType);
+                        }
+                        catch
+                        {
+                            // If envelope querying fails, moments stay at 0
+                        }
+                    }
+                    else if (!(loadingCase is IEnvelope))
+                    {
+                        // For regular cases/combos, query directly
+                        majorMomentMax = await GetMaxForceInLift(memberLoading, LoadingValueType.Moment, LoadingDirection.Major, lift, reduced);
+                        majorShearMax = await GetMaxForceInLift(memberLoading, LoadingValueType.Force, LoadingDirection.Major, lift, reduced);
+                        minorMomentMax = await GetMaxForceInLift(memberLoading, LoadingValueType.Moment, LoadingDirection.Minor, lift, reduced);
+                        minorShearMax = await GetMaxForceInLift(memberLoading, LoadingValueType.Force, LoadingDirection.Minor, lift, reduced);
+                    }
 
                     string line = $"{EscapeCsvValue(id.ToString())},{EscapeCsvValue(partMark)},{EscapeCsvValue(filterValue)},{EscapeCsvValue(member.Name)},{EscapeCsvValue(lift.Name)}," +
-                          $"{EscapeCsvValue(startLevelName)},{EscapeCsvValue(endLevelName)},{EscapeCsvValue(sectionName)},{EscapeCsvValue(materialName)}," +
+                          $"{EscapeCsvValue(startLevelName)},{EscapeCsvValue(endLevelName)},{EscapeCsvValue(sectionName)},{EscapeCsvValue(materialName)},{sectionArea:F3}," +
                           $"{EscapeCsvValue(startNodeName)},{EscapeCsvValue(startNodeFixity)},{startX:F3},{startY:F3},{startZ:F3}," +
                           $"{EscapeCsvValue(endNodeName)},{EscapeCsvValue(endNodeFixity)},{endX:F3},{endY:F3},{endZ:F3}," +
                           $"{lengthFt:F3},{rotationDeg:F3},{EscapeCsvValue(loadingCase.Name)}," +
@@ -315,6 +343,82 @@ namespace TeklaResultsInterrogator.Commands
                 }
             }
             return lines;
+        }
+
+        private static async Task<double> GetMaxMomentFromEnvelope(IMember member, IEnvelope envelope, LoadingDirection direction, ColumnLift lift, bool reduced, AnalysisType analysisType)
+        {
+            double maxMoment = 0;
+            var momentLock = new object();
+
+            try
+            {
+                // Create list of tasks for parallel execution
+                var tasks = new List<Task>();
+
+                for (int i = 0; envelope.CombinationIds != null && i < envelope.CombinationIds.Count; i++)
+                {
+                    int index = i; // Capture for closure
+                    tasks.Add(Task.Run(async () =>
+                    {
+                        try
+                        {
+                            var combId = envelope.CombinationIds[index].Value;
+                            var memberLoading = await member.GetLoadingAsync(combId, analysisType, LoadingResultType.Base);
+                            var moment = await GetMaxForceInLift(memberLoading, LoadingValueType.Moment, direction, lift, reduced);
+
+                            lock (momentLock)
+                            {
+                                if (moment > maxMoment)
+                                    maxMoment = moment;
+                            }
+                        }
+                        catch { }
+                    }));
+                }
+
+                await Task.WhenAll(tasks);
+            }
+            catch { }
+
+            return maxMoment;
+        }
+
+        private static async Task<double> GetMaxShearFromEnvelope(IMember member, IEnvelope envelope, LoadingDirection direction, ColumnLift lift, bool reduced, AnalysisType analysisType)
+        {
+            double maxShear = 0;
+            var shearLock = new object();
+
+            try
+            {
+                // Create list of tasks for parallel execution
+                var tasks = new List<Task>();
+
+                for (int i = 0; envelope.CombinationIds != null && i < envelope.CombinationIds.Count; i++)
+                {
+                    int index = i; // Capture for closure
+                    tasks.Add(Task.Run(async () =>
+                    {
+                        try
+                        {
+                            var combId = envelope.CombinationIds[index].Value;
+                            var memberLoading = await member.GetLoadingAsync(combId, analysisType, LoadingResultType.Base);
+                            var shear = await GetMaxForceInLift(memberLoading, LoadingValueType.Force, direction, lift, reduced);
+
+                            lock (shearLock)
+                            {
+                                if (shear > maxShear)
+                                    maxShear = shear;
+                            }
+                        }
+                        catch { }
+                    }));
+                }
+
+                await Task.WhenAll(tasks);
+            }
+            catch { }
+
+            return maxShear;
         }
 
         private static async Task<double> GetMaxForceInLift(
@@ -408,7 +512,11 @@ namespace TeklaResultsInterrogator.Commands
 
                             if (vals.Any())
                             {
-                                allValues.Add(vals.MaxBy(v => Math.Abs(v.Value))?.Value ?? 0.0);
+                                // Add all values to capture both positive and negative extremes
+                                foreach (var v in vals)
+                                {
+                                    allValues.Add(v.Value);
+                                }
                             }
                         }
                         finally
@@ -420,8 +528,8 @@ namespace TeklaResultsInterrogator.Commands
                 }
             }
 
-            double globalMax = allValues.Where(v => v > 0).DefaultIfEmpty(0.0).Max();
-            double globalMin = allValues.DefaultIfEmpty(0.0).Min();
+            double globalMax = allValues.Count > 0 ? allValues.Max() : 0.0;
+            double globalMin = allValues.Count > 0 ? allValues.Min() : 0.0;
 
             double valCon = ConversionFactor(valueType);
             return (globalMax * valCon, globalMin * valCon);

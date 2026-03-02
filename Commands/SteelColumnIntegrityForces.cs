@@ -123,7 +123,7 @@ namespace TeklaResultsInterrogator.Commands
 
             // Prepare output CSV file
             string file1 = SaveDirectory + @"SteelColumnIntegrityForces_" + OutputFileName + ".csv";
-            string header1 = "Tekla GUID,Part Mark,UDA Filter,Member Name,Lift Name,Start Level,End Level,Shape,Material," +
+            string header1 = "Tekla GUID,Part Mark,UDA Filter,Member Name,Lift Name,Start Level,End Level,Shape,Material,Section Area [in2]," +
                            "Start Node,X_StartNode,Y_StartNode,Z_StartNode," +
                            "End Node,X_EndNode,Y_EndNode,Z_EndNode," +
                            "Lift Length [ft],Integrity Force [k]\n";
@@ -245,12 +245,18 @@ namespace TeklaResultsInterrogator.Commands
 
                 string sectionName = "Unknown";
                 string materialName = "Unknown";
+                double sectionArea = 0.0;
+
                 if (firstSpan.ElementSection.Value != null)
                 {
                     var elementSection = (IMemberSection)firstSpan.ElementSection.Value;
                     var physicalSection = (ISection)elementSection.PhysicalSection.Value;
                     sectionName = physicalSection.LongName;
+
+                    // Get section area and convert from mm² to in²
+                    sectionArea = MmSqToInSq(physicalSection.CrossSectionalArea);
                 }
+
                 if (firstSpan.Material?.Value != null)
                 {
                     materialName = firstSpan.Material.Value.Name;
@@ -266,7 +272,7 @@ namespace TeklaResultsInterrogator.Commands
                     integrityForce = -1 * integrityForces[lift.Name];
                 }
 
-                string line = $"{EscapeCsvValue(id.ToString())},{EscapeCsvValue(partMark)},{EscapeCsvValue(filterValue)},{EscapeCsvValue(member.Name)},{EscapeCsvValue(lift.Name)},{EscapeCsvValue(startLevelName)},{EscapeCsvValue(endLevelName)},{EscapeCsvValue(sectionName)},{EscapeCsvValue(materialName)}," +
+                string line = $"{EscapeCsvValue(id.ToString())},{EscapeCsvValue(partMark)},{EscapeCsvValue(filterValue)},{EscapeCsvValue(member.Name)},{EscapeCsvValue(lift.Name)},{EscapeCsvValue(startLevelName)},{EscapeCsvValue(endLevelName)},{EscapeCsvValue(sectionName)},{EscapeCsvValue(materialName)},{sectionArea:F3}," +
                             $"{EscapeCsvValue(startNodeName)},{startX:F3},{startY:F3},{startZ:F3}," +
                             $"{EscapeCsvValue(endNodeName)},{endX:F3},{endY:F3},{endZ:F3}," +
                             $"{lengthFt:F3},{integrityForce}";
