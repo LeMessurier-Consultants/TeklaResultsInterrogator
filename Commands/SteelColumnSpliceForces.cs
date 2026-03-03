@@ -308,6 +308,13 @@ namespace TeklaResultsInterrogator.Commands
 
                 foreach (var loadingCase in loadingCases)
                 {
+                    // Calculate integrity forces once per lift (if needed)
+                    var integrityForces = new Dictionary<string, double>();
+                    if (integrityForceCombination != null && columnSpans.HasSplice && lifts.Count > 1)
+                    {
+                        integrityForces = await CalculateIntegrityForcesWithSpliceOffsets(member, lifts, integrityForceCombination, reduced, columnSpans, analysisType);
+                    }
+
                     // If no splices in this lift, output a single row with splice offset of 0 and all forces as 0
                     if (spliceOffsets.Count == 0)
                     {
@@ -355,13 +362,10 @@ namespace TeklaResultsInterrogator.Commands
                         double minorShearMax = 0;
 
                         // For envelopes, use GetPointsOfInterest to get moments/shears directly (MUCH FASTER!)
-                        // (Envelopes can now be queried directly instead of looping child combinations)
                         if (loadingCase is IEnvelope envelope && envelope.CombinationIds != null)
                         {
                             try
                             {
-                                // Query moments and shears directly from envelope using GetPointsOfInterest
-                                // This is 10x+ faster than looping through all child combinations
                                 majorMomentMax = await GetMaxForceFromPointsOfInterestAtSplice(memberLoading, LoadingValueType.Moment, LoadingDirection.Major, spanIndex, spliceOffset);
                                 majorShearMax = await GetMaxForceFromPointsOfInterestAtSplice(memberLoading, LoadingValueType.Force, LoadingDirection.Major, spanIndex, spliceOffset);
                                 minorMomentMax = await GetMaxForceFromPointsOfInterestAtSplice(memberLoading, LoadingValueType.Moment, LoadingDirection.Minor, spanIndex, spliceOffset);
@@ -381,11 +385,15 @@ namespace TeklaResultsInterrogator.Commands
                             minorShearMax = await GetMaxForceAtSplice(memberLoading, LoadingValueType.Force, LoadingDirection.Minor, spanIndex, spliceOffset, reduced);
                         }
 
-                        // Get integrity force at splice location (always from Integrity Force combination)
+                        // Get integrity force from pre-calculated values (lookup, don't query per-splice)
                         double integrityForce = 0.0;
-                        if (integrityForceCombination != null && columnSpans.HasSplice)
+                        if (integrityForceCombination != null && columnSpans.HasSplice && lifts.Count > 1)
                         {
-                            integrityForce = await GetIntegrityForceAtSplice(member, integrityForceCombination, spanIndex, spliceOffset, reduced, analysisType);
+                            // Look up the pre-calculated value for this lift
+                            if (integrityForces.ContainsKey(lift.Name))
+                            {
+                                integrityForce = -1 * Math.Abs(integrityForces[lift.Name]);
+                            }
                         }
 
                         string line = $"{EscapeCsvValue(id.ToString())},{EscapeCsvValue(partMark)},{EscapeCsvValue(filterValue)},{EscapeCsvValue(member.Name)},{EscapeCsvValue(lift.Name)}," +
@@ -616,6 +624,114 @@ namespace TeklaResultsInterrogator.Commands
 
             double valCon = ConversionFactor(valueType);
             return (globalMax * valCon, globalMin * valCon);
+        }
+
+        private static async Task<Dictionary<string, double>> CalculateIntegrityForcesWithSpliceOffsets(
+            IMember member,
+            List<ColumnLift> lifts,
+            ICombination integrityForceCombination,
+            bool reduced,
+            ColumnSpansSteel columnSpans,
+            AnalysisType analysisType)
+        {
+            var integrityForces = new Dictionary<string, double>();
+            if (lifts.Count <= 1 || integrityForceCombination == null) return integrityForces;
+
+            try
+            {
+                IMemberLoading memberLoading;
+                var swWait = Stopwatch.StartNew();
+                await ApiLimiter.WaitAsync();
+                swWait.Stop();
+                ApiMetrics.RecordSemaphoreWait(swWait.ElapsedTicks);
+                var sw = Stopwatch.StartNew();
+                try
+                {
+                    memberLoading = await member.GetLoadingAsync(integrityForceCombination.Id, analysisType, LoadingResultType.Base);
+                }
+                finally
+                {
+                    sw.Stop();
+                    ApiMetrics.RecordLoading(sw.ElapsedTicks);
+                    ApiLimiter.Release();
+                }
+
+                double valCon = ConversionFactor(LoadingValueType.Force);
+                integrityForces[lifts[0].Name] = 0.0;
+
+                // Start node force - take absolute value
+                var firstSpan = lifts[0].Spans.First();
+                double startNodeForce = Math.Abs(await FetchForce(memberLoading, firstSpan.Index, 0.0, reduced)) * valCon;
+
+                // Get forces at all splice locations - sequential processing to avoid API congestion
+                var spliceForces = new List<double>();
+                foreach (var lift in lifts)
+                {
+                    foreach (var span in lift.Spans)
+                    {
+                        if (columnSpans.SpanSpliceInfo.ContainsKey(span.Index) &&
+                            columnSpans.SpanSpliceInfo[span.Index].HasSplice)
+                        {
+                            double spliceOffset = columnSpans.SpanSpliceInfo[span.Index].SpliceOffset;
+                            // Take absolute value of splice forces
+                            spliceForces.Add(Math.Abs(await FetchForce(memberLoading, span.Index, spliceOffset, reduced)) * valCon);
+                        }
+                    }
+                }
+
+                // Calculate integrity forces for each lift using the exact logic from SteelColumnIntegrityForces
+                for (int i = 1; i < lifts.Count; i++)
+                {
+                    if (i == 1 && spliceForces.Count > 0)
+                    {
+                        integrityForces[lifts[i].Name] = startNodeForce - spliceForces[0];
+                    }
+                    else if (i - 1 < spliceForces.Count && i - 2 >= 0 && i - 2 < spliceForces.Count)
+                    {
+                        integrityForces[lifts[i].Name] = spliceForces[i - 2] - spliceForces[i - 1];
+                    }
+                    else
+                    {
+                        integrityForces[lifts[i].Name] = 0.0;
+                    }
+                }
+            }
+            catch (Exception)
+            {
+                // console log if needed
+                foreach (var l in lifts) integrityForces[l.Name] = 0.0;
+            }
+            return integrityForces;
+        }
+
+        private static async Task<double> FetchForce(IMemberLoading loading, int spanIndex, double pos, bool reduced)
+        {
+            try
+            {
+                var option = LoadingValueOptions.StaticValue(LoadingValueType.Force, LoadingDirection.Axial, reduced);
+                IEnumerable<ILoadingValue> values;
+                var swWait = Stopwatch.StartNew();
+                await ApiLimiter.WaitAsync();
+                swWait.Stop();
+                ApiMetrics.RecordSemaphoreWait(swWait.ElapsedTicks);
+                var sw = Stopwatch.StartNew();
+                ApiMetrics.IncrementActiveValueCalls();
+                try
+                {
+                    values = await loading.GetValueAsync(option, spanIndex, pos);
+                }
+                finally
+                {
+                    ApiMetrics.DecrementActiveValueCalls();
+                    sw.Stop();
+                    ApiLimiter.Release();
+                }
+                ApiMetrics.RecordValue(sw.ElapsedTicks);
+
+                return values.MaxBy(v => Math.Abs(v.Value))?.Value ?? 0.0;
+            }
+            catch { }
+            return 0.0;
         }
     }
 }
