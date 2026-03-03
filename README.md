@@ -8,8 +8,9 @@ A powerful, high-performance console application designed to extract structural 
 *   **High Performance Extraction**: Utilizes `Parallel.ForEachAsync` with a `SemaphoreSlim` (ApiLimiter) to maximize throughput without overwhelming the TSD API.
 *   **Comprehensive Interrogators**:
     *   [Steel Column Summary](Commands/SteelColumnSummary.cs): Extracts lifts, internal forces, eccentricity moments, and integrity forces.
-    *   [Steel Column Forces](Commands/SteelColumnForces.cs): High-fidelity axial and shear force extraction at column stations.
-    *   [Steel Column Envelopes](Commands/SteelColumnEnvelopes.cs): Extracts max/min axial forces, moments, and shears for all steel columns.
+    *   [Steel Column Span Forces](Commands/SteelColumnSpanForces.cs): High-fidelity axial, moment and shear force extraction at column stations and splice.
+    *   [Steel Column Lift Forces](Commands/SteelColumnLiftForces.cs): Extracts max/min axial forces, moments, and shears Lift-wise for all steel columns.
+    *   [Steel Column Splice Forces](Commands/SteelColumnSpliceForces.cs): Extracts max/min axial forces, moments, and shears at splice locations for each lift for all steel columns.
     *   [Steel Column Eccentricity Moments](Commands/SteelColumnEccentricityMoments.cs): Generates max/min envelope eccentricity moments for column lifts.
     *   [Steel Column Shortening](Commands/SteelColumnShortening.cs): Calculates axial shortening using the $PL/AE$ formula for each lift.
     *   [Steel Column Integrity Forces](Commands/SteelColumnIntegrityForces.cs): Extracts column tying/integrity forces for disproportionate collapse checks.

@@ -269,7 +269,8 @@ namespace TeklaResultsInterrogator.Commands
                 double integrityForce = 0.0;
                 if (integrityForceCase != null && integrityForces.ContainsKey(lift.Name))
                 {
-                    integrityForce = -1 * integrityForces[lift.Name];
+                    // Take absolute value of the integrity force and multiply by -1 to ensure negative
+                    integrityForce = -1 * Math.Abs(integrityForces[lift.Name]);
                 }
 
                 string line = $"{EscapeCsvValue(id.ToString())},{EscapeCsvValue(partMark)},{EscapeCsvValue(filterValue)},{EscapeCsvValue(member.Name)},{EscapeCsvValue(lift.Name)},{EscapeCsvValue(startLevelName)},{EscapeCsvValue(endLevelName)},{EscapeCsvValue(sectionName)},{EscapeCsvValue(materialName)},{sectionArea:F3}," +
@@ -312,9 +313,9 @@ namespace TeklaResultsInterrogator.Commands
                 double valCon = ConversionFactor(LoadingValueType.Force);
                 integrityForces[lifts[0].Name] = 0.0;
 
-                // Start node force
+                // Start node force - take absolute value
                 var firstSpan = lifts[0].Spans.First();
-                double startNodeForce = await FetchForce(memberLoading, firstSpan.Index, 0.0, reduced) * valCon;
+                double startNodeForce = Math.Abs(await FetchForce(memberLoading, firstSpan.Index, 0.0, reduced)) * valCon;
 
                 // Get forces at all splice locations - sequential processing to avoid API congestion
                 var spliceForces = new List<double>();
@@ -326,7 +327,8 @@ namespace TeklaResultsInterrogator.Commands
                             columnSpans.SpanSpliceInfo[span.Index].HasSplice)
                         {
                             double spliceOffset = columnSpans.SpanSpliceInfo[span.Index].SpliceOffset;
-                            spliceForces.Add(await FetchForce(memberLoading, span.Index, spliceOffset, reduced) * valCon);
+                            // Take absolute value of splice forces
+                            spliceForces.Add(Math.Abs(await FetchForce(memberLoading, span.Index, spliceOffset, reduced)) * valCon);
                         }
                     }
                 }

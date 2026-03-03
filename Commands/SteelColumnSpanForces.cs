@@ -19,12 +19,12 @@ namespace TeklaResultsInterrogator.Commands
     /// <summary>
     /// Interrogates Steel Column forces, calculating forces at stations along the column.
     /// </summary>
-    public class SteelColumnForces : SolverInterrogator
+    public class SteelColumnSpanForces : SolverInterrogator
     {
         /// <inheritdoc/>
         public override bool ShowInMenu() => true;
-        /// <summary>Initializes a new instance of the <see cref="SteelColumnForces"/> class.</summary>
-        public SteelColumnForces()
+        /// <summary>Initializes a new instance of the <see cref="SteelColumnSpanForces"/> class.</summary>
+        public SteelColumnSpanForces()
         {
             HasOutput = true;
             RequestedMemberType = new List<MemberConstruction>() { MemberConstruction.SteelColumn };
@@ -115,7 +115,7 @@ namespace TeklaResultsInterrogator.Commands
             FancyWriteLine("\nQuerying Steel Column Forces (Parallel)...", TextColor.Title);
 
             // Prepare CSV
-            string file1 = SaveDirectory + @"SteelColumnForces_" + OutputFileName + ".csv";
+            string file1 = SaveDirectory + @"SteelColumnSpanForces_" + OutputFileName + ".csv";
             string header1 = "Tekla GUID,UDA Filter,Member Name,Span Name,Start Level,End Level,Shape,Material," +
                              "Start Node,Start Node Fixity,X_StartNode,Y_StartNode,Z_StartNode," +
                              "End Node,End Node Fixity,X_EndNode,Y_EndNode,Z_EndNode," +
