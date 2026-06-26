@@ -2,31 +2,37 @@
 using System.Text;
 using TeklaResultsInterrogator.Core;
 using TeklaResultsInterrogator.Utils;
-using static TeklaResultsInterrogator.Utils.Utils;
 using TSD.API.Remoting.Loading;
 using TSD.API.Remoting.Solver;
+using static TeklaResultsInterrogator.Utils.ConsoleUtils;
 
 namespace TeklaResultsInterrogator.Commands
 {
+    /// <summary>
+    /// Interrogates Footfall Analysis data, including modal information, shapes, and joint coordinates.
+    /// </summary>
     public class FootfallAnalysis : VibrationInterrogator
     {
+        /// <inheritdoc/>
         public override bool ShowInMenu() { return true; }
 
+        /// <summary>Initializes a new instance of the <see cref="FootfallAnalysis"/> class.</summary>
         public FootfallAnalysis()
         {
             HasOutput = true;
         }
 
+        /// <summary>
+        /// Executes the Footfall Analysis interrogation, writing modal data to CSVs.
+        /// </summary>
         public override async Task ExecuteAsync()
         {
             // Initialize parents
             await InitializeAsync();
 
-            // Check for null properties
-            if (Flag)
-            {
-                return;
-            }
+            if (Flag) return;
+
+            ApiMetrics.Reset();
 
             // Data setup and diagnostics
             Stopwatch stopwatch = Stopwatch.StartNew();
@@ -35,18 +41,18 @@ namespace TeklaResultsInterrogator.Commands
             // Unpacking vibration data
             FancyWriteLine("Vibration Data Summary:", TextColor.Title);
             Console.WriteLine("Unpacking vibration data...");
-            IReadOnlyList<IVibrationMode> modes = LoadingVibration.Modes;
-            IReadOnlyDictionary<int, INodeVibration> nodeVibrations = LoadingVibration.NodeVibrations;
+            IReadOnlyList<IVibrationMode> modes = LoadingVibration!.Modes;
+            IReadOnlyDictionary<int, INodeVibration> nodeVibrations = LoadingVibration!.NodeVibrations;
 
-            double summedActiveMass = LoadingVibration.SummedActiveMass.Mz;
-            double summedTotalMass = LoadingVibration.SummedTotalMass.Mz;
+            double summedActiveMass = LoadingVibration!.SummedActiveMass.Mz;
+            double summedTotalMass = LoadingVibration!.SummedTotalMass.Mz;
             double massUtilization = Math.Round(summedActiveMass / summedTotalMass * 100, 2);
 
             List<IVibrationMode> sortedModes = modes.OrderBy(m => m.Frequency).ToList();
             double lowestFreq = sortedModes.First().Frequency;
             double highestFreq = sortedModes.Last().Frequency;
 
-            Console.WriteLine($"{Nodes.Count()} nodes found.");
+            Console.WriteLine($"{(Nodes != null ? Nodes.Count() : 0)} nodes found.");
             Console.WriteLine($"{modes.Count} vibration modes found:");
             Console.WriteLine($"  Slowest: {Math.Round(lowestFreq, 2)} Hz");
             Console.WriteLine($"  Fastest: {Math.Round(highestFreq, 3)} Hz");
@@ -61,11 +67,10 @@ namespace TeklaResultsInterrogator.Commands
             double start1 = stopwatch.Elapsed.TotalSeconds;
             string file1 = SaveDirectory + @"FootfallAnalysis-ModalInformation_" + OutputFileName + ".csv";
             string header1 = String.Format("{0},{1},{2},{3},{4},{5},{6},{7},{8}\n", "Mode No.", "Frequency [Hz]", "Modal Mass [N]", "Mx [%]", "My [%]", "Mz [%]", "Rx [%]", "Ry [%]", "Rz [%]");
-            File.WriteAllText(file1, "");
-            File.AppendAllText(file1, header1);
+            File.WriteAllText(file1, header1);
 
             // Iterating through each mode and writing data to file
-            using (StreamWriter sw1 = new StreamWriter(file1, true, Encoding.UTF8, bufferSize))
+            using (StreamWriter sw1 = new(file1, true, Encoding.UTF8, bufferSize))
             {
                 int modeId = 1;  // Manually indexing mode ID starting at 1
                 foreach (IVibrationMode mode in modes)
@@ -99,11 +104,10 @@ namespace TeklaResultsInterrogator.Commands
             double start2 = stopwatch.Elapsed.TotalSeconds;
             string file2 = SaveDirectory + @"FootfallAnalysis-ModalShapes_" + OutputFileName + ".csv";
             string header2 = String.Format("{0},{1},{2},{3},{4},{5},{6},{7}\n", "Joint ID", "Mode No.", "Ux [m]", "Uy [m]", "Uz [m]", "Rx [rad]", "Ry [rad]", "Rz [rad]");
-            File.WriteAllText(file2, "");
             File.WriteAllText(file2, header2);
 
             // Iterating through each node and getting nodal information
-            using (StreamWriter sw2 = new StreamWriter(file2, true, Encoding.UTF8, bufferSize))
+            using (StreamWriter sw2 = new(file2, true, Encoding.UTF8, bufferSize))
             {
                 foreach (KeyValuePair<int, INodeVibration> kvp in nodeVibrations)
                 {
@@ -143,18 +147,17 @@ namespace TeklaResultsInterrogator.Commands
             double start3 = stopwatch.Elapsed.TotalSeconds;
             string file3 = SaveDirectory + @"FootFallAnalysis-JointCoordinator_" + OutputFileName + ".csv";
             string header3 = String.Format("{0},{1},{2},{3}\n", "Joint ID", "X [ft]", "Y [ft]", "Z [ft]");
-            File.WriteAllText(file3, "");
-            File.AppendAllText(file3, header3);
+            File.WriteAllText(file3, header3);
 
             // Iterating through each node and writing data to file
-            using (StreamWriter sw3 = new StreamWriter(file3, true, Encoding.UTF8, bufferSize))
+            using (StreamWriter sw3 = new(file3, true, Encoding.UTF8, bufferSize))
             {
-                foreach (INode node in Nodes)
+                foreach (INode node in Nodes ?? Enumerable.Empty<INode>())
                 {
                     int id = node.Index;  // Node index [-]
-                    double ux = node.Coordinates.X * 0.00328084;  // Nodal coordinates [ft]
-                    double uy = node.Coordinates.Y * 0.00328084;
-                    double uz = node.Coordinates.Z * 0.00328084;
+                    double ux = MmToFt(node.Coordinates.X);  // Nodal coordinates [ft]
+                    double uy = MmToFt(node.Coordinates.Y);
+                    double uz = MmToFt(node.Coordinates.Z);
 
                     string line3 = String.Format("{0},{1},{2},{3}", id, ux, uy, uz);
                     sw3.WriteLine(line3);
@@ -167,6 +170,17 @@ namespace TeklaResultsInterrogator.Commands
             Console.WriteLine($"File size: {size3} KB");
             double time3 = Math.Round(stopwatch.Elapsed.TotalSeconds - start3, 3);
             Console.WriteLine($"Joint coordinator table completed in {time3} seconds.");
+
+            // Report Metrics
+            Console.WriteLine("\n--- API Diagnostics ---");
+            Console.WriteLine($"GetLoadingAsync:     {ApiMetrics.LoadingCalls} calls, Avg: {(ApiMetrics.LoadingCalls > 0 ? (double)ApiMetrics.LoadingDuration / ApiMetrics.LoadingCalls / 10000.0 : 0):F3} ms");
+            Console.WriteLine($"GetValueAsync:       {ApiMetrics.ValueCalls} calls, Avg: {(ApiMetrics.ValueCalls > 0 ? (double)ApiMetrics.ValueDuration / ApiMetrics.ValueCalls / 10000.0 : 0):F3} ms");
+            Console.WriteLine($"Peak Concurrency:    {ApiMetrics.MaxConcurrency}");
+            if (ApiMetrics.SemaphoreWaitCalls > 0)
+            {
+                Console.WriteLine($"Semaphore Waits:     {ApiMetrics.SemaphoreWaitCalls} calls, Avg: {(double)ApiMetrics.SemaphoreWaitDuration / ApiMetrics.SemaphoreWaitCalls / 10000.0:F3} ms (Max: {ApiMetrics.SemaphoreWaitMax / 10000.0:F3} ms)");
+            }
+            Console.WriteLine("-----------------------\n");
 
             stopwatch.Stop();
             ExecutionTime = stopwatch.Elapsed.TotalSeconds;

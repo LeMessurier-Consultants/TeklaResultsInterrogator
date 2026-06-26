@@ -1,31 +1,42 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
-
+using MathNet.Numerics;
+using TeklaResultsInterrogator.Core;
+using TeklaResultsInterrogator.Utils;
 using TSD.API.Remoting.Loading;
 using TSD.API.Remoting.Solver;
 using TSD.API.Remoting.Structure;
-
-using MathNet.Numerics;
-
-using TeklaResultsInterrogator.Core;
-using TeklaResultsInterrogator.Utils;
-using static TeklaResultsInterrogator.Utils.Utils;
-
+using static TeklaResultsInterrogator.Utils.ConsoleUtils;
 
 namespace TeklaResultsInterrogator.Core
 {
+
+
+    /// <summary>
+    /// Encapsulates results for a single member span, handling maxima and station-based data retrieval.
+    /// </summary>
     public class SpanResults
     {
+        /// <summary>Name of the span.</summary>
         public string Name { get; set; }
+        /// <summary>Length of the span (mm).</summary>
         public double Length { get; set; }
+        /// <summary>Whether to use reduced results.</summary>
         public bool Reduced { get; set; }
+        /// <summary>Number of subdivisions/stations for detailed analysis.</summary>
         public int Subdivisions { get; set; }
+        /// <summary>Associated loading case.</summary>
         public ILoadingCase Loading { get; set; }
+        /// <summary>Associated analysis type.</summary>
         public AnalysisType AnalysisType { get; set; }
+        /// <summary>The TSD span object.</summary>
         public IMemberSpan Span { get; set; }
+        /// <summary>The parent member of the span.</summary>
         public IMember ParentMember { get; set; }
 
         private LoadingValueOptions ShearMajorValueOption { get; set; }
@@ -39,6 +50,15 @@ namespace TeklaResultsInterrogator.Core
         private LoadingValueOptions DisplacementMajorValueOption { get; set; }
         private LoadingValueOptions DisplacementMinorValueOption { get; set; }
 
+        /// <summary>
+        /// Initializes a new instance of the <see cref="SpanResults"/> class.
+        /// </summary>
+        /// <param name="span">The member span.</param>
+        /// <param name="subdivisions">Number of subdivisions.</param>
+        /// <param name="loading">Loading case.</param>
+        /// <param name="reduced">Use reduced forces.</param>
+        /// <param name="analysisType">Analysis type.</param>
+        /// <param name="parentMember">Parent member.</param>
         public SpanResults(IMemberSpan span, int subdivisions, ILoadingCase loading, bool reduced, AnalysisType analysisType, IMember parentMember)
         {
             Span = span;
@@ -62,22 +82,53 @@ namespace TeklaResultsInterrogator.Core
             DisplacementMinorValueOption = LoadingValueOptions.StaticValue(LoadingValueType.Displacement, LoadingDirection.Minor, Reduced);
         }
 
+        /// <summary>
+        /// Calculates and retrieves the maximum values for forces and displacements along the span.
+        /// </summary>
+        /// <returns>A <see cref="MaxSpanInfo"/> object containing the maxima.</returns>
         public async Task<MaxSpanInfo> GetMaxima()
         {
-            // Get Loading
-            IMemberLoading memberLoading = await ParentMember.GetLoadingAsync(Loading.Id, AnalysisType, LoadingResultType.Base);
+            // Get Loading (instrumented)
+            await SolverInterrogator.ApiLimiter.WaitAsync();
+            var sw = Stopwatch.StartNew();
+            IMemberLoading memberLoading;
+            try
+            {
+                memberLoading = await ParentMember.GetLoadingAsync(Loading.Id, AnalysisType, LoadingResultType.Base);
+            }
+            finally
+            {
+                sw.Stop();
+                SolverInterrogator.ApiLimiter.Release();
+            }
+            ApiMetrics.RecordLoading(sw.ElapsedTicks);
 
             // Calculate maxima
-            MaxSpanInfoData shearMajor = await CalculateMaximum(memberLoading, ShearMajorValueOption);
-            MaxSpanInfoData shearMinor = await CalculateMaximum(memberLoading, ShearMinorValueOption);
-            MaxSpanInfoData momentMajor = await CalculateMaximum(memberLoading, MomentMajorValueOption);
-            MaxSpanInfoData momentMinor = await CalculateMaximum(memberLoading, MomentMinorValueOption);
-            MaxSpanInfoData axialForce = await CalculateMaximum(memberLoading, AxialValueOption);
-            MaxSpanInfoData torsion = await CalculateMaximum(memberLoading, TorsionValueOption);
-            MaxSpanInfoData deflectionMajor = await CalculateMaximum(memberLoading, DeflectionMajorValueOption);
-            MaxSpanInfoData deflectionMinor = await CalculateMaximum(memberLoading, DeflectionMinorValueOption);
-            MaxSpanInfoData displacementMajor = await CalculateMaximum(memberLoading, DisplacementMajorValueOption);
-            MaxSpanInfoData displacementMinor = await CalculateMaximum(memberLoading, DisplacementMinorValueOption);
+            // Calculate maxima (Parallel)
+            // Use Task.WhenAll to mask API latency (throttled by ApiLimiter)
+            var tShearMajor = CalculateMaximum(memberLoading, ShearMajorValueOption);
+            var tShearMinor = CalculateMaximum(memberLoading, ShearMinorValueOption);
+            var tMomentMajor = CalculateMaximum(memberLoading, MomentMajorValueOption);
+            var tMomentMinor = CalculateMaximum(memberLoading, MomentMinorValueOption);
+            var tAxialForce = CalculateMaximum(memberLoading, AxialValueOption);
+            var tTorsion = CalculateMaximum(memberLoading, TorsionValueOption);
+            var tDeflectionMajor = CalculateMaximum(memberLoading, DeflectionMajorValueOption);
+            var tDeflectionMinor = CalculateMaximum(memberLoading, DeflectionMinorValueOption);
+            var tDisplacementMajor = CalculateMaximum(memberLoading, DisplacementMajorValueOption);
+            var tDisplacementMinor = CalculateMaximum(memberLoading, DisplacementMinorValueOption);
+
+            await Task.WhenAll(tShearMajor, tShearMinor, tMomentMajor, tMomentMinor, tAxialForce, tTorsion, tDeflectionMajor, tDeflectionMinor, tDisplacementMajor, tDisplacementMinor);
+
+            MaxSpanInfoData shearMajor = tShearMajor.Result;
+            MaxSpanInfoData shearMinor = tShearMinor.Result;
+            MaxSpanInfoData momentMajor = tMomentMajor.Result;
+            MaxSpanInfoData momentMinor = tMomentMinor.Result;
+            MaxSpanInfoData axialForce = tAxialForce.Result;
+            MaxSpanInfoData torsion = tTorsion.Result;
+            MaxSpanInfoData deflectionMajor = tDeflectionMajor.Result;
+            MaxSpanInfoData deflectionMinor = tDeflectionMinor.Result;
+            MaxSpanInfoData displacementMajor = tDisplacementMajor.Result;
+            MaxSpanInfoData displacementMinor = tDisplacementMinor.Result;
 
             // Instantiate and return MaxSpanInfo object
             return new MaxSpanInfo(Loading, shearMajor, shearMinor, momentMajor, momentMinor, axialForce, torsion, deflectionMajor, deflectionMinor, displacementMajor, displacementMinor);
@@ -85,55 +136,125 @@ namespace TeklaResultsInterrogator.Core
 
         private async Task<MaxSpanInfoData> CalculateMaximum(IMemberLoading loading, LoadingValueOptions option)
         {
-            // Get Points of Interest
-            List<IPointOfInterest> points = new List<IPointOfInterest>();
-            points.AddRange((await loading.GetPointsOfInterest(option, PointOfInterestType.Maximum)).ToList());
-            points.AddRange((await loading.GetPointsOfInterest(option, PointOfInterestType.Minimum)).ToList());
+            // Get Places of Interest (instrumented)
+            List<IPointOfInterest> points = new();
+
+            var swWait = Stopwatch.StartNew();
+            await SolverInterrogator.ApiLimiter.WaitAsync();
+            swWait.Stop();
+            ApiMetrics.RecordSemaphoreWait(swWait.ElapsedTicks);
+            var swPoi = Stopwatch.StartNew();
+            try
+            {
+                points.AddRange((await loading.GetPointsOfInterest(option, PointOfInterestType.Maximum)).ToList());
+            }
+            finally
+            {
+                swPoi.Stop();
+                SolverInterrogator.ApiLimiter.Release();
+            }
+
+            ApiMetrics.RecordPoi(swPoi.ElapsedTicks);
+
+            swWait.Restart();
+            await SolverInterrogator.ApiLimiter.WaitAsync();
+            swWait.Stop();
+            ApiMetrics.RecordSemaphoreWait(swWait.ElapsedTicks);
+            swPoi.Restart();
+            try
+            {
+                points.AddRange((await loading.GetPointsOfInterest(option, PointOfInterestType.Minimum)).ToList());
+            }
+            finally
+            {
+                swPoi.Stop();
+                SolverInterrogator.ApiLimiter.Release();
+            }
+            ApiMetrics.RecordPoi(swPoi.ElapsedTicks);
+
             points = points.Where(p => p.SpanIndex == Span.Index).ToList();
 
             // Get Positions
-            List<ValueTuple<int, double>> positions = new List<ValueTuple<int, double>>();
+            List<(int, double)> positions = new();
             foreach (IPointOfInterest point in points)
             {
-                ValueTuple<int, double> position = new ValueTuple<int, double>(Span.Index, point.Position);
-                positions.Add(position);
+                positions.Add((Span.Index, point.Position));
             }
 
-            // Get Values in base units
-            IEnumerable<ILoadingValue> values = await loading.GetValueAsync(option, positions);
-            values = values.OrderByDescending(lv => lv.Value);
+            // Get Values in base units (instrumented)
+            // Get Values in base units (instrumented)
+            IEnumerable<ILoadingValue> values;
+            swWait.Restart();
+            await SolverInterrogator.ApiLimiter.WaitAsync();
+            swWait.Stop();
+            ApiMetrics.RecordSemaphoreWait(swWait.ElapsedTicks);
+            var swVal = Stopwatch.StartNew();
+            ApiMetrics.IncrementActiveValueCalls();
+            try
+            {
+                values = await loading.GetValueAsync(option, positions);
+            }
+            finally
+            {
+                ApiMetrics.DecrementActiveValueCalls();
+                swVal.Stop();
+                SolverInterrogator.ApiLimiter.Release();
+            }
+            ApiMetrics.RecordValue(swVal.ElapsedTicks);
+
             double maxValue = 0;
             double maxPosition = 0;
             double minValue = 0;
             double minPosition = 0;
 
-            // Convert units
-            double posCon = 0.00328084; // Converting from [mm] to [ft]
+            // Convert units conversion factor
             double valCon = ConversionFactor(option.Type);
 
             if (values.Any())
             {
-                maxValue = values.First().Value * valCon;
-                maxPosition = values.First().Position * posCon;
-                minValue = values.Last().Value * valCon;
-                minPosition = values.Last().Position * posCon;
+                var max = values.MaxBy(lv => lv.Value)!;
+                maxValue = max.Value * valCon;
+                maxPosition = MmToFt(max.Position);
+
+                var min = values.MinBy(lv => lv.Value)!;
+                minValue = min.Value * valCon;
+                minPosition = MmToFt(min.Position);
             }
-            
+
             return new MaxSpanInfoData(maxValue, maxPosition, minValue, minPosition);
         }
 
+        /// <summary>
+        /// Calculates force and displacement values at specified stations along the span.
+        /// </summary>
+        /// <returns>A list of <see cref="PointSpanInfo"/> containing data for each station.</returns>
         public async Task<List<PointSpanInfo>> GetStations()
         {
             // Calculate station positions
             IEnumerable<double> positions = Generate.LinearSpaced(Subdivisions, 0, Length);
 
-            // Get Loading
-            IMemberLoading memberLoading = await ParentMember.GetLoadingAsync(Loading.Id, AnalysisType, LoadingResultType.Base);
+            // Get Loading (instrumented)
+            IMemberLoading memberLoading;
+            var swWait = Stopwatch.StartNew();
+            await SolverInterrogator.ApiLimiter.WaitAsync();
+            swWait.Stop();
+            ApiMetrics.RecordSemaphoreWait(swWait.ElapsedTicks);
+            var sw = Stopwatch.StartNew();
+            try
+            {
+                memberLoading = await ParentMember.GetLoadingAsync(Loading.Id, AnalysisType, LoadingResultType.Base);
+            }
+            finally
+            {
+                sw.Stop();
+                SolverInterrogator.ApiLimiter.Release();
+            }
+            ApiMetrics.RecordLoading(sw.ElapsedTicks);
 
             //Instantiate output list
-            List<PointSpanInfo> stationData = new List<PointSpanInfo>();
+            List<PointSpanInfo> stationData = new();
 
-            foreach(double position in positions)
+            foreach (double position in positions)
             {
 
                 // Calculate values
@@ -148,8 +269,8 @@ namespace TeklaResultsInterrogator.Core
                 double displacementMajor = await GetLoadingValues(memberLoading, DisplacementMajorValueOption, position);
                 double displacementMinor = await GetLoadingValues(memberLoading, DisplacementMinorValueOption, position);
 
-                double positionFt = position * 0.00328084; // Converting from [mm] to [ft]
-                PointSpanInfo stationInfo = new PointSpanInfo(Loading, positionFt, shearMajor, shearMinor, momentMajor, momentMinor, axialForce, torsion, deflectionMajor, deflectionMinor, displacementMajor, displacementMinor);
+                double positionFt = MmToFt(position); // Converting from [mm] to [ft]
+                PointSpanInfo stationInfo = new(Loading, positionFt, shearMajor, shearMinor, momentMajor, momentMinor, axialForce, torsion, deflectionMajor, deflectionMinor, displacementMajor, displacementMinor);
 
                 stationData.Add(stationInfo);
             }
@@ -159,9 +280,22 @@ namespace TeklaResultsInterrogator.Core
 
         private async Task<double> GetLoadingValues(IMemberLoading loading, LoadingValueOptions option, double position)
         {
-            // Get Loading
-            IEnumerable<ILoadingValue> values = await loading.GetValueAsync(option, Span.Index, position);
-            values = values.OrderByDescending(lv => lv.Value);
+            // Get Values (instrumented)
+            IEnumerable<ILoadingValue> values;
+            await SolverInterrogator.ApiLimiter.WaitAsync();
+            var sw = Stopwatch.StartNew();
+            ApiMetrics.IncrementActiveValueCalls();
+            try
+            {
+                values = await loading.GetValueAsync(option, Span.Index, position);
+            }
+            finally
+            {
+                ApiMetrics.DecrementActiveValueCalls();
+                sw.Stop();
+                SolverInterrogator.ApiLimiter.Release();
+            }
+            ApiMetrics.RecordValue(sw.ElapsedTicks);
 
             // Convert units
             double valCon = ConversionFactor(option.Type);
@@ -169,7 +303,7 @@ namespace TeklaResultsInterrogator.Core
             double value = 0;
             if (values.Any())
             {
-                value = values.First().Value * valCon;
+                value = values.MaxBy(lv => lv.Value)!.Value * valCon;
             }
 
             return value;

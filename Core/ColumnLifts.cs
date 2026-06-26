@@ -1,90 +1,127 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Diagnostics.Metrics;
 using System.Linq;
-using System.Text;
 using System.Threading.Tasks;
-
-using TeklaResultsInterrogator.Core;
 using TeklaResultsInterrogator.Utils;
-using TSD.API.Remoting.Loading;
-using TSD.API.Remoting.Solver;
 using TSD.API.Remoting.Structure;
 
-namespace TeklaResultsInterrogator.Core
+/// <summary>
+/// Represents the collection of lifts for a column member, organizing spans based on splices.
+/// </summary>
+public class ColumnLifts
 {
-    public class ColumnLifts
+    /// <summary>
+    /// The parent member (column) this object represents.
+    /// </summary>
+    public IMember ParentMember { get; }
+
+    /// <summary>
+    /// The list of organized lifts, where each lift contains a list of member spans.
+    /// </summary>
+    public List<NamedList<IMemberSpan>> Lifts { get; } = new();
+
+    /// <summary>
+    /// Indicates if the column has any splices.
+    /// </summary>
+    public bool HasSplice { get; private set; }
+
+    /// <summary>
+    /// Stores splice information per span index. Key is Span Index, Value is (HasSplice, SpliceOffset).
+    /// </summary>
+    public Dictionary<int, (bool HasSplice, double SpliceOffset)> SpanSpliceInfo { get; } = new();
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="ColumnLifts"/> class.
+    /// </summary>
+    /// <param name="parentMember">The parent column member.</param>
+    public ColumnLifts(IMember parentMember)
     {
-        public IMember ParentMember { get; set; }
-        public List<NamedList<IMemberSpan>> Lifts { get; set; }
+        ParentMember = parentMember;
+    }
 
-        public ColumnLifts(IMember parentMember)
-        {
-            ParentMember = parentMember;
-            Lifts = new List<NamedList<IMemberSpan>>();
-        }
+    /// <summary>
+    /// Organizing the column spans into lifts based on splice locations.
+    /// This populates the <see cref="Lifts"/> property.
+    /// </summary>
+    public async Task OrganizeBySpliceAsync()
+    {
+        var spans = (await ParentMember.GetSpanAsync())
+            .OrderBy(s => s.Index)
+            .ToList();
 
-        public async Task OrganizeByFixity()
+        HasSplice = false;
+        SpanSpliceInfo.Clear();
+
+        // Collect splice info and track which spans have splices
+        var spliceIndices = new HashSet<int>();
+
+        foreach (var span in spans)
         {
-            IEnumerable<IMemberSpan> spans = await ParentMember.GetSpanAsync();
-            spans = spans.OrderBy(s => s.Index);
-            bool previousSpanTopFixed = false;
-            foreach (var span in spans)
+            bool spanHasSplice = false;
+            double spliceOffset = 0;
+
+            if (span.Data?.Value is ISteelColumnStackData stackData)
             {
-                bool thisBotFixed = CheckFixity(span, StackEnd.Bottom);
-                bool thisTopFixed = CheckFixity(span, StackEnd.Top);
-                
-                if (!thisBotFixed || !previousSpanTopFixed)
-                {
-                    string liftName = $"L{Lifts.Count + 1}";
-                    NamedList<IMemberSpan> lift = new NamedList<IMemberSpan>(liftName);
-                    lift.Add(span);
-                    Lifts.Add(lift);
-                }
-                else
-                {
-                    Lifts.Last().Add(span);
-                }
+                if (stackData.HasSplice.IsApplicable)
+                    spanHasSplice = stackData.HasSplice.Value;
 
-                previousSpanTopFixed = thisTopFixed;
+                if (stackData.SpliceOffset.IsApplicable)
+                    spliceOffset = stackData.SpliceOffset.Value;
             }
 
+            SpanSpliceInfo[span.Index] = (spanHasSplice, spliceOffset);
+            if (spanHasSplice)
+            {
+                HasSplice = true;
+                spliceIndices.Add(span.Index);
+            }
+        }
+
+        Lifts.Clear();
+
+        if (!HasSplice)
+        {
+            // No splices → single lift with all spans
+            var singleLift = new NamedList<IMemberSpan>("L1");
+            foreach (var span in spans)
+                singleLift.Add(span);
+            Lifts.Add(singleLift);
             return;
         }
 
-        private bool CheckFixity(IMemberSpan span, StackEnd end)
+        // Sort splice indices to process in order
+        var sortedSplices = spliceIndices.OrderBy(i => i).ToList();
+
+        // We will create lifts starting at:
+        // - first span index
+        // - every splice index (except the first if it is the very first span)
+        // Each lift ends *just before* the next splice start span
+
+        var liftStartIndices = new List<int> { spans.First().Index };
+        // Add splice starts after the first span if not already first
+        foreach (var spliceIdx in sortedSplices)
         {
-            bool isFixed = false;
-            ISpanReleases? releases = null;
+            if (spliceIdx != spans.First().Index)
+                liftStartIndices.Add(spliceIdx);
+        }
+        liftStartIndices = liftStartIndices.OrderBy(i => i).ToList();
 
-            switch (end)
+        for (int i = 0; i < liftStartIndices.Count; i++)
+        {
+            int startIdx = liftStartIndices[i];
+            int endIdxExclusive = (i + 1 < liftStartIndices.Count) ? liftStartIndices[i + 1] : spans.Last().Index + 1;
+
+            var lift = new NamedList<IMemberSpan>($"L{i + 1}");
+
+            // Add spans with index >= startIdx and < endIdxExclusive
+            foreach (var span in spans)
             {
-                case StackEnd.Bottom:
-                    releases = span.StartReleases.Value;
-                    break;
-                case StackEnd.Top:
-                    releases = span.EndReleases.Value;
-                    break;
-                default:
-                    break;
+                if (span.Index >= startIdx && span.Index < endIdxExclusive)
+                    lift.Add(span);
             }
 
-            if (releases != null)
-            {
-                string releaseValueString = releases.DegreeOfFreedom.Value.ToString();
-                if (releaseValueString.Contains("Mx") && releaseValueString.Contains("My") && releaseValueString.Contains("Mz"))
-                {
-                    isFixed = true;
-                }
-            }
-
-            return isFixed;
+            Lifts.Add(lift);
         }
     }
 
-    public enum StackEnd
-    {
-        Bottom,
-        Top,
-    }
 }

@@ -8,34 +8,74 @@ using TeklaResultsInterrogator.Core;
 
 namespace TeklaResultsInterrogator.Commands
 {
-    public class CommandTemplate : ParentTemplate  // Should inherit a parent Interrogator class
+    /// <summary>
+    /// A template class for creating new Interrogator commands.
+    /// </summary>
+    public class CommandTemplate : SolverInterrogator
     {
-        // Should not declare any public properties here
+        // Declare internal/private properties here
 
-        //public override bool ShowInMenu() {return true;}
-
-        // Leave class constructor parameterless
+        /// <summary>Initializes a new instance of the <see cref="CommandTemplate"/> class.</summary>
         public CommandTemplate()
         {
-            HasOutput = false;  // Only explicitly declare properties in constructor body
+            HasOutput = false;
         }
 
-        // Main routines here to be called after initialization
+        /// <summary>
+        /// Executes the command routines.
+        /// </summary>
         public override async Task ExecuteAsync()
         {
-            // Initialize parents
             await InitializeAsync();
 
-            // Check for null properties
             if (Flag)
             {
                 return;
             }
 
-            // Data setup and diagnostics initialization; declare locals here
+            // Data setup and diagnostics initialization
             Stopwatch stopwatch = Stopwatch.StartNew();
 
+            // Unpacking loading data
+            LogLoadingSummary();
+
+            stopwatch.Stop();
+
+            // Prompt for user input (excluded from execution timer)
+            // var ... = AskUser(...);
+
+            stopwatch.Start();
+
+            // Unpacking member data
+            // var members = AskAndFilterMembers(true, true);
+
+
+
+            double timeUnpack = Math.Round(stopwatch.Elapsed.TotalSeconds, 3);
+            Console.WriteLine($"Loading and member data unpacked in {timeUnpack} seconds.\n");
+
             // Call all command routines and subroutines here within this method
+
+            // Recommended Pattern:
+            // 1. Phase 1: Organize data & Collect indices (e.g. Construction Points)
+            // 2. Phase 2: Batch Fetch geometry (e.g. GetConstructionPointsAsync)
+            // 3. Phase 3: Parallel Execution using inherited concurrency settings:
+            //
+            //    var parallelOptions = new ParallelOptions { MaxDegreeOfParallelism = MaxDegreeOfParallelism };
+            //    var results = new System.Collections.Concurrent.ConcurrentBag<List<string>>();
+            //
+            //    using var progress = new ProgressBar(data.Count);
+            //    await Parallel.ForEachAsync(data, parallelOptions, async (item, token) =>
+            //    {
+            //        var result = await ProcessItemAsync(item, ...);
+            //        results.Add(result);
+            //        progress.Increment();
+            //    });
+            //
+            // NOTE: Inherited from SolverInterrogator:
+            // - MaxDegreeOfParallelism = ProcessorCount * 8 (soft cap for memory protection)
+            // - ApiLimiter = SemaphoreSlim(20) (hard cap for API stability)
+            // - ProgressBar is in TeklaResultsInterrogator.Utils
 
             // Finish up
             stopwatch.Stop();
